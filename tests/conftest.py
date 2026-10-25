@@ -22,6 +22,9 @@ def isolated_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep audit logs and policy lookups out of the working tree."""
     monkeypatch.setenv("OPNSENSE_GUARD_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("OPNSENSE_GUARD_POLICY", str(tmp_path / "no-policy.yaml"))
+    # Never let a developer's real write key reach a test.
+    for name in ("OPNSENSE_WRITE_API_KEY", "OPNSENSE_WRITE_API_SECRET"):
+        monkeypatch.delenv(name, raising=False)
 
 
 @pytest.fixture

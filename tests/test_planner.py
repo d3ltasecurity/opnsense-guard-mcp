@@ -117,7 +117,7 @@ async def test_add_allowed_and_tagged(planner: Planner) -> None:
     after = result["objects"][0]["after"]
     assert after["description"] == "[mcp] block ssh"
     assert after["log"] == "1"
-    assert result["diff"][0].startswith("+ [opt1] block in")
+    assert result["diff"][0].startswith("+ #(auto) [opt1] block in")
     assert "Nothing was changed" in result["note"]
 
 

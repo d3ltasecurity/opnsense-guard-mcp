@@ -23,15 +23,27 @@ READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempot
 PLANNING = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=False)
 
 
-def actor_of(ctx: Context | None) -> str:
-    """'token:<name>' for HTTP clients, 'stdio' otherwise."""
+def _token_state(ctx: Context | None) -> dict[str, Any]:
     try:
         request = ctx.request_context.request if ctx is not None else None
     except ValueError:
         request = None
-    state = getattr(request, "scope", {}).get("state", {}) if request is not None else {}
-    name = state.get("token_name")
+    state: dict[str, Any] = (
+        getattr(request, "scope", {}).get("state", {}) if request is not None else {}
+    )
+    return state
+
+
+def actor_of(ctx: Context | None) -> str:
+    """'token:<name>' for HTTP clients, 'stdio' otherwise."""
+    name = _token_state(ctx).get("token_name")
     return f"token:{name}" if name else "stdio"
+
+
+def scope_of(ctx: Context | None) -> str:
+    """Token scope for HTTP clients. stdio is the local operator: 'write'."""
+    state = _token_state(ctx)
+    return str(state.get("token_scope", "read")) if state.get("token_name") else "write"
 
 
 def audit_rules(rows: list[dict[str, Any]], tag: str) -> dict[str, Any]:
@@ -74,9 +86,11 @@ def register_plan_tools(
     policy: Policy,
     get_client: Callable[[], ReadClient],
     audit: AuditLog,
-) -> None:
-    store = PlanStore()
-    planner = Planner(policy, get_client, store)
+    planner: Planner | None = None,
+) -> Planner:
+    """Register policy/audit/planning tools and return the planner they use."""
+    planner = planner or Planner(policy, get_client, PlanStore())
+    store = planner.store
 
     @mcp.tool(annotations=READ_ONLY)
     async def policy_show() -> dict[str, Any]:
@@ -113,7 +127,7 @@ def register_plan_tools(
         return result
 
     if not policy.writable:
-        return
+        return planner
 
     @mcp.tool(annotations=PLANNING)
     async def rule_plan(operations: list[RuleOp], ctx: Context) -> dict[str, Any]:
@@ -194,3 +208,5 @@ def register_plan_tools(
             limit: number of events (1-200).
         """
         return audit.tail(max(1, min(int(limit), 200)))
+
+    return planner

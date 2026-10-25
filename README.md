@@ -5,9 +5,10 @@ A safety-first [MCP](https://modelcontextprotocol.io) server for **OPNsense 26.7
 > **Read-only by default. Every write is planned, policy-checked, logged, and
 > auto-reverted unless you confirm it.**
 
-**Status: pre-alpha (Phase 2).** Read tools, policy file, change *planning* with
-diffs, and a hash-chained audit log, over stdio or authenticated HTTP. Applying
-changes (with auto-revert) is designed ([DESIGN.md](DESIGN.md)) but not built yet.
+**Status: pre-alpha (Phase 3, not yet tested against a live firewall).** Read
+tools, policy file, change planning with diffs, applying changes with verification
+and automatic revert, and a hash-chained audit log, over stdio or authenticated
+HTTP. See [DESIGN.md](DESIGN.md).
 
 Not affiliated with Deciso B.V. "OPNsense" is a trademark of Deciso B.V.
 
@@ -17,8 +18,8 @@ Not affiliated with Deciso B.V. "OPNsense" is a trademark of Deciso B.V.
 |---|---|
 | Default mode | read-only |
 | Read path | GET only, path allowlist, verb denylist, traversal/encoding rejected, redirects not followed |
-| Writes (planned) | separate API user, plan → policy check → apply → auto-revert unless confirmed |
-| Rollback on 26.7+ (planned) | own object-level snapshot + revert (the savepoint API is gone in 26.7) |
+| Writes | separate API user, exact endpoint allowlist, plan → policy check → human approval → apply → verify → auto-revert unless confirmed |
+| Rollback on 26.7+ | own object-level snapshots + revert (the savepoint API is gone in 26.7); survives restarts |
 | Guardrails | allowlist policy file: interfaces, networks, rule limits, anti-lockout |
 | Audit | hash-chained JSONL (`audit verify` detects edits); syslog planned |
 | Transport | stdio, or Streamable HTTP that always needs a bearer token; optional TLS / mTLS |
@@ -120,6 +121,46 @@ without logging; edit only rules tagged `[mcp]` (unless `only_modify_own: false`
 anti-lockout (no block rule that matches this server's own IP, and only new
 pass rules on the interface it reaches the API through).
 
+## Applying changes
+
+Change tools appear only when **both** the policy is in write mode **and** a
+second, write-capable API user is configured:
+
+```bash
+OPNSENSE_WRITE_API_KEY=...      # a different OPNsense user than the read one
+OPNSENSE_WRITE_API_SECRET=...
+```
+
+Give that user privileges for firewall rules and aliases only. Over HTTP, the
+change tools need a token with `--scope write`.
+
+The flow:
+
+1. `rule_plan` / `alias_plan` → diff + `plan_id` (changes nothing).
+2. `change_apply(plan_id)` → asks the human to approve the diff (MCP
+   elicitation where the client supports it; otherwise the tool returns the
+   diff and must be called again with `user_confirmed=true`). Then it
+   re-reads the firewall (refuses if anything drifted since planning), stores
+   the before-state, writes, applies, reads everything back to verify, and
+   checks the API is still reachable. Any failure → everything is reverted.
+3. The change is **pending**: it is reverted automatically after
+   `confirm_timeout_s` (default 60 s) unless `change_confirm` is called.
+4. `change_rollback` undoes a pending or confirmed change. A revert never
+   overwrites an object someone else edited meanwhile (status `conflict`).
+
+Unconfirmed changes are also reverted when the server stops and, after a
+crash, when it starts again. Only one change can be open at a time, and
+`max_changes_per_hour` is enforced.
+
+**Limits, stated plainly**
+
+- The revert timer runs on the MCP host. If a change cuts that host off from
+  the firewall API, the revert cannot reach it. The anti-lockout policy and
+  the health probe right after apply exist to prevent and catch this, but they
+  are not the same as the firewall-side savepoint older OPNsense versions had.
+- Without elicitation, `user_confirmed=true` is the model's word that the user
+  agreed. The audit log records which method was used.
+
 ## Audit log
 
 Every plan (allowed or refused) and server start is written to
@@ -142,6 +183,8 @@ Credentials are never written to it.
 `dhcp_leases`, `raw_get`, `policy_show`, `security_audit`.
 
 In write mode also: `rule_plan`, `alias_plan`, `plan_get`, `audit_tail`.
+With write credentials also: `change_apply`, `change_confirm`, `change_rollback`,
+`change_list`, `change_get`.
 
 ## Development
 
