@@ -42,7 +42,15 @@ RULE_FIELDS = (
     "destination_port",
     "log",
     "description",
+    # Not settable through plans. New rules get the safe values below; existing
+    # rules with anything else are refused, because the checks above would
+    # misjudge them (a negated source matches everything *except* that net).
+    "quick",
+    "interfacenot",
+    "source_not",
+    "destination_not",
 )
+FIXED_RULE_FIELDS = {"quick": "1", "interfacenot": "0", "source_not": "0", "destination_not": "0"}
 
 # --------------------------------------------------------------- models
 
@@ -228,7 +236,7 @@ def normalise_rule(raw: dict[str, Any]) -> dict[str, str]:
 
 
 def spec_to_fields(spec: RuleSpec) -> dict[str, str]:
-    data = spec.model_dump()
+    data = {**spec.model_dump(), **FIXED_RULE_FIELDS}
     return {name: flatten(data[name]) for name in RULE_FIELDS}
 
 
@@ -346,6 +354,22 @@ class PolicyChecker:
                 f"rule {uuid} was not created by this server (no '{self.w.tag}' tag) "
                 "and only_modify_own is on"
             )
+
+        for state in (before, after):
+            if state is None:
+                continue
+            negated = [
+                f for f in ("interfacenot", "source_not", "destination_not") if state[f] == "1"
+            ]
+            if negated:
+                v.append(
+                    f"rule uses negation ({', '.join(negated)}); this server does not "
+                    "plan changes to negated rules"
+                )
+                break
+            if state["quick"] != "1":
+                v.append("rule is not 'quick' (last-match); only first-match rules are supported")
+                break
 
         # Anti-lockout: protected interfaces accept new pass rules only.
         new_pass = op == "add" and after is not None and after.get("action") == "pass"

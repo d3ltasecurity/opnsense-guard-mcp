@@ -1,0 +1,213 @@
+{
+  "_comment": "Shape of GET /api/firewall/filter/getRule/{uuid} on OPNsense 26.7.4. Captured read-only from a lab firewall 2026-10-25; addresses and names replaced, long option lists (protocol, tos, icmptype, ...) trimmed.",
+  "rule": {
+    "enabled": "1",
+    "statetype": {
+      "keep": {
+        "value": "keep",
+        "selected": 1
+      },
+      "sloppy": {
+        "value": "sloppy",
+        "selected": 0
+      },
+      "modulate": {
+        "value": "modulate",
+        "selected": 0
+      },
+      "synproxy": {
+        "value": "synproxy",
+        "selected": 0
+      },
+      "none": {
+        "value": "none",
+        "selected": 0
+      }
+    },
+    "state-policy": {
+      "": {
+        "value": "",
+        "selected": 1
+      },
+      "if-bound": {
+        "value": "if-bound",
+        "selected": 0
+      },
+      "floating": {
+        "value": "floating",
+        "selected": 0
+      }
+    },
+    "sequence": "120",
+    "sort_order": "400000.0000120",
+    "prio_group": "400000",
+    "action": {
+      "pass": {
+        "value": "Pass",
+        "selected": 1
+      },
+      "block": {
+        "value": "Block",
+        "selected": 0
+      },
+      "reject": {
+        "value": "Reject",
+        "selected": 0
+      }
+    },
+    "quick": "1",
+    "interfacenot": "0",
+    "interface": {
+      "opt1": {
+        "value": "DMZ",
+        "selected": 1
+      },
+      "lan": {
+        "value": "MGMT",
+        "selected": 0
+      },
+      "opt2": {
+        "value": "SERVICES",
+        "selected": 0
+      },
+      "wan": {
+        "value": "WAN",
+        "selected": 0
+      }
+    },
+    "received-on-not": "0",
+    "received-on": {
+      "opt1": {
+        "value": "opt1",
+        "selected": 0
+      },
+      "lan": {
+        "value": "lan",
+        "selected": 0
+      },
+      "opt2": {
+        "value": "opt2",
+        "selected": 0
+      },
+      "wan": {
+        "value": "wan",
+        "selected": 0
+      }
+    },
+    "direction": {
+      "in": {
+        "value": "In",
+        "selected": 1
+      },
+      "out": {
+        "value": "Out",
+        "selected": 0
+      },
+      "any": {
+        "value": "Both",
+        "selected": 0
+      }
+    },
+    "ipprotocol": {
+      "inet": {
+        "value": "inet",
+        "selected": 1
+      },
+      "inet6": {
+        "value": "inet6",
+        "selected": 0
+      },
+      "inet46": {
+        "value": "inet46",
+        "selected": 0
+      }
+    },
+    "protocol": {
+      "any": {
+        "value": "any",
+        "selected": 0
+      },
+      "TCP": {
+        "value": "TCP",
+        "selected": 1
+      },
+      "UDP": {
+        "value": "UDP",
+        "selected": 0
+      },
+      "TCP/UDP": {
+        "value": "TCP/UDP",
+        "selected": 0
+      },
+      "ICMP": {
+        "value": "ICMP",
+        "selected": 0
+      },
+      "ESP": {
+        "value": "ESP",
+        "selected": 0
+      },
+      "GRE": {
+        "value": "GRE",
+        "selected": 0
+      }
+    },
+    "source_net": "192.168.50.50/32",
+    "source_not": "0",
+    "source_port": "",
+    "destination_net": "any",
+    "destination_not": "0",
+    "destination_port": "80",
+    "divert-to": {
+      "": {
+        "value": "",
+        "selected": 1
+      },
+      "8000": {
+        "value": "8000",
+        "selected": 0
+      }
+    },
+    "gateway": {
+      "": {
+        "value": "",
+        "selected": 1
+      },
+      "Null4": {
+        "value": "Null4",
+        "selected": 0
+      },
+      "WAN_GW": {
+        "value": "WAN_GW",
+        "selected": 0
+      }
+    },
+    "disablereplyto": "0",
+    "log": "1",
+    "allowopts": "0",
+    "nosync": "0",
+    "nopfsync": "0",
+    "tag": "",
+    "tagged": "",
+    "tcpflags_any": "0",
+    "categories": [],
+    "description": "Example DMZ -> HTTP (updates)",
+    "audit": {
+      "created": {
+        "username": "api-user@192.168.60.2",
+        "time": "1792927778.33",
+        "description": "/api/api.php made changes",
+        "%time": "2026-10-25 16:59:38"
+      },
+      "updated": {
+        "username": "api-user@192.168.60.2",
+        "time": "1792927778.33",
+        "description": "/api/api.php made changes",
+        "%time": "2026-10-25 16:59:38"
+      },
+      "userdata": {
+        "note": ""
+      }
+    }
+  }
+}
