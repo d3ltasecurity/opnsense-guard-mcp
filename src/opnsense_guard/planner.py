@@ -30,6 +30,7 @@ ALIAS_NAME_RE = re.compile(r"^[A-Za-z0-9_]{1,31}$")
 PORT_RE = re.compile(r"^(\d{1,5})(?:[-:](\d{1,5}))?$")
 
 RULE_FIELDS = (
+    "sequence",  # evaluation order: first match wins, lower sequence first
     "enabled",
     "action",
     "interface",
@@ -74,6 +75,12 @@ class RuleSpec(_Strict):
     log: bool = True
     enabled: bool = True
     description: str = Field(default="", max_length=200)
+    sequence: int | None = Field(
+        default=None,
+        ge=1,
+        le=999999,
+        description="Evaluation order (lower first). Omit to let OPNsense choose.",
+    )
 
 
 class RuleChanges(_Strict):
@@ -91,6 +98,7 @@ class RuleChanges(_Strict):
     log: bool | None = None
     enabled: bool | None = None
     description: str | None = Field(default=None, max_length=200)
+    sequence: int | None = Field(default=None, ge=1, le=999999)
 
 
 class RuleOp(_Strict):
@@ -231,6 +239,23 @@ def flatten(value: Any) -> str:
     return str(value)
 
 
+def alias_view(a: dict[str, Any] | None) -> dict[str, str] | None:
+    """Flat alias state for plans, diffs and the journal (uuid kept when known)."""
+    if a is None:
+        return None
+    out = {
+        "type": a["type"],
+        "entries": ",".join(a["entries"]),
+        "description": a["description"],
+    }
+    if a.get("uuid"):
+        out["uuid"] = a["uuid"]
+    return out
+
+
+ALIAS_FIELDS = ("type", "entries", "description")
+
+
 def normalise_rule(raw: dict[str, Any]) -> dict[str, str]:
     return {name: flatten(raw.get(name, "")) for name in RULE_FIELDS}
 
@@ -241,6 +266,7 @@ def spec_to_fields(spec: RuleSpec) -> dict[str, str]:
 
 
 def describe_rule(r: dict[str, str]) -> str:
+    seq = f"#{r['sequence']} " if r.get("sequence") else "#(auto) "
     port = f" port {r['destination_port']}" if r.get("destination_port") else ""
     sport = f" port {r['source_port']}" if r.get("source_port") else ""
     flags = []
@@ -249,7 +275,7 @@ def describe_rule(r: dict[str, str]) -> str:
     if r.get("enabled") == "0":
         flags.append("DISABLED")
     flag_text = f" [{', '.join(flags)}]" if flags else ""
-    return (
+    return seq + (
         f"[{r.get('interface')}] {r.get('action')} {r.get('direction')} {r.get('ipprotocol')} "
         f"{r.get('protocol')} from {r.get('source_net')}{sport} to "
         f"{r.get('destination_net')}{port}{flag_text} '{r.get('description')}'"
@@ -486,7 +512,7 @@ class Planner:
             policy_sha256=self.policy.sha256,
         )
 
-    async def _get_rule(self, uuid: str) -> tuple[dict[str, str] | None, str | None]:
+    async def get_rule(self, uuid: str) -> tuple[dict[str, str] | None, str | None]:
         try:
             data = await self.get_client().get(f"/api/firewall/filter/getRule/{uuid}")
         except OPNsenseError as exc:
@@ -513,7 +539,7 @@ class Planner:
             return obj
 
         uuid = op.uuid or ""
-        before, error = await self._get_rule(uuid)
+        before, error = await self.get_rule(uuid)
         if before is None:
             return PlannedObject("rule", op.op, uuid, None, None, [], [error or "unknown error"])
 
@@ -539,7 +565,7 @@ class Planner:
         obj.violations = self.check.check_rule(op.op, before, after, uuid)
         return obj
 
-    async def _get_alias(self, name: str) -> tuple[dict[str, Any] | None, str | None]:
+    async def get_alias(self, name: str) -> tuple[dict[str, Any] | None, str | None]:
         """Return ({uuid,type,entries,description}, None), (None, None) if absent, or error."""
         try:
             found = await self.get_client().get(f"/api/firewall/alias/getAliasUUID/{name}")
@@ -578,18 +604,9 @@ class Planner:
             violation = f"alias name must start with '{ap.name_prefix}'"
             return PlannedObject("alias", op.op, op.name, None, None, [], [violation])
 
-        current, error = await self._get_alias(op.name)
+        current, error = await self.get_alias(op.name)
         if error:
             return PlannedObject("alias", op.op, op.name, None, None, [], [*v, error])
-
-        def view(a: dict[str, Any] | None) -> dict[str, str] | None:
-            if a is None:
-                return None
-            return {
-                "type": a["type"],
-                "entries": ",".join(a["entries"]),
-                "description": a["description"],
-            }
 
         if op.op == "create":
             if current is not None:
@@ -607,14 +624,14 @@ class Planner:
             if len(entries) > ap.max_entries:
                 v.append(f"{len(entries)} entries; policy max_entries is {ap.max_entries}")
             diff = [f"+ alias {op.name} ({alias_type}): {', '.join(entries) or '(empty)'}"]
-            return PlannedObject("alias", "create", op.name, None, view(after), diff, v)
+            return PlannedObject("alias", "create", op.name, None, alias_view(after), diff, v)
 
         if current is None:
             return PlannedObject("alias", op.op, op.name, None, None, [], [*v, "alias not found"])
 
         if op.op == "delete":
             diff = [f"- alias {op.name} ({current['type']}): {', '.join(current['entries'])}"]
-            return PlannedObject("alias", "delete", op.name, view(current), None, diff, v)
+            return PlannedObject("alias", "delete", op.name, alias_view(current), None, diff, v)
 
         entries = list(current["entries"])
         if op.op == "add_entries":
@@ -629,4 +646,6 @@ class Planner:
         if len(entries) > ap.max_entries:
             v.append(f"{len(entries)} entries; policy max_entries is {ap.max_entries}")
         after = {**current, "entries": entries}
-        return PlannedObject("alias", op.op, op.name, view(current), view(after), diff, v)
+        return PlannedObject(
+            "alias", op.op, op.name, alias_view(current), alias_view(after), diff, v
+        )

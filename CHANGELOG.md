@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Phase 3 (fake-firewall tested only): write client with an exact endpoint
+  allowlist and a separate API user; SQLite change journal; `change_apply`
+  with human approval (elicitation or explicit `user_confirmed`), drift check,
+  verification read-back, health probe and full revert on any failure;
+  automatic revert after `confirm_timeout_s`, on shutdown and on restart;
+  `change_confirm`, `change_rollback` (conflict-safe), `change_list`,
+  `change_get`; one open change at a time; hourly rate limit.
+- Rule `sequence` is now part of plans, diffs and reverts, so an undone
+  delete puts the rule back in the same place.
+
 - Verified against a real OPNsense 26.7.4 `getRule` reply (fixture added).
   Plans now refuse rules using negation (`source_not`, `destination_not`,
   `interfacenot`) or non-quick matching; new rules always get quick=1 and no

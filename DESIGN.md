@@ -131,8 +131,11 @@ New:
 | `change_rollback` | revert a change now (also works after confirm, within journal retention) |
 
 Writes are always two calls (plan, then apply). The model cannot one-shot a
-change. If the client supports MCP *elicitation*, `change_apply` also asks the
-human "Apply plan X? (diff shown)" before doing anything.
+change. If the client supports MCP *elicitation*, `change_apply` asks the
+human "Apply plan X? (diff shown)" before doing anything; otherwise it returns
+the diff and must be called again with `user_confirmed=true`, and the audit log
+records which of the two happened. Only one change may be open at a time.
+Read-scoped HTTP tokens can see the change tools but every call is refused.
 
 ## 5. Rollback on 26.7+ (the core feature)
 
@@ -163,9 +166,10 @@ Then `apply`. Before reverting, compare current state to the **after** snapshot.
 If someone else edited the object meanwhile (e.g. another chat using the API
 directly), **do not overwrite** — mark the change `conflict` and tell the user.
 
-**Crash safety:** the journal is on disk. On startup the server finds any
-change still `pending` past its deadline and reverts it. So a server crash or
-restart does not leave an unconfirmed change in place.
+**Crash safety:** the journal is on disk and written before anything is sent.
+On startup the server reverts every change still `applying` or `pending`, and
+it does the same on a clean shutdown. An unconfirmed change never outlives the
+process that made it.
 
 **Lockout — honest limit.** The old savepoint ran *on the firewall*, so it
 survived losing access. Ours runs on the MCP host. If a change cuts the MCP
