@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator, Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -14,6 +15,13 @@ from opnsense_guard.config import ReadSettings
 from opnsense_guard.server import build_server
 
 BASE_URL = "https://fw.test"
+
+
+@pytest.fixture(autouse=True)
+def isolated_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep audit logs and policy lookups out of the working tree."""
+    monkeypatch.setenv("OPNSENSE_GUARD_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("OPNSENSE_GUARD_POLICY", str(tmp_path / "no-policy.yaml"))
 
 
 @pytest.fixture

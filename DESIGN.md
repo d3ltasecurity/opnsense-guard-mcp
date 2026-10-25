@@ -109,17 +109,23 @@ New:
 | Tool | What it does |
 |---|---|
 | `firewall_rule_get` | one rule by UUID, full fields |
-| `security_audit` | flags any→any pass rules, WAN inbound pass, rules without logging, disabled IDS, default creds hints, stale `[mcp]` rules |
+| `security_audit` | flags any→any pass rules, WAN inbound pass, pass rules without logging, IDS not running; counts `[mcp]`-tagged rules |
 | `policy_show` | what this server is allowed to change (so the model knows its limits) |
 | `change_list` / `change_get` | the change journal: pending, confirmed, reverted |
-| `audit_tail` | last N audit events (write scope only) |
+| `audit_tail` | last N audit events (write mode only) |
 
-### Write (only with write key + `mode: write` + a write-scoped token)
+### Planning (`mode: write`; any token, since plans change nothing)
 
 | Tool | What it does |
 |---|---|
 | `rule_plan` | add / update / delete / toggle one or more filter rules → returns `plan_id` + diff. **Changes nothing.** |
 | `alias_plan` | create alias, add/remove entries, delete alias → `plan_id` + diff |
+| `plan_get` | show a plan (kept 15 min) |
+
+### Write (write API key + `mode: write` + a write-scoped token)
+
+| Tool | What it does |
+|---|---|
 | `change_apply` | apply a plan; starts the revert timer; returns `change_id` |
 | `change_confirm` | keep the change (stops the timer) |
 | `change_rollback` | revert a change now (also works after confirm, within journal retention) |
@@ -210,6 +216,8 @@ writes:
 anti_lockout:
   enabled: true
   mcp_host_ips: [192.168.1.50]     # example: the MCP host; never block it → API
+  protected_interfaces: [opt2]     # the MCP host reaches the API here: only new pass rules
+  i_understand_lockout_risk: false # second switch needed to set enabled: false
 ```
 
 **Defaults vs. full control.** The defaults above are the safe starting point.
