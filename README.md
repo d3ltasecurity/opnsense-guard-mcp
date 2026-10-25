@@ -5,8 +5,9 @@ A safety-first [MCP](https://modelcontextprotocol.io) server for **OPNsense 26.7
 > **Read-only by default. Every write is planned, policy-checked, logged, and
 > auto-reverted unless you confirm it.**
 
-**Status: pre-alpha (Phase 1).** Read tools over stdio or authenticated HTTP.
-Writes, policy file and audit log are designed ([DESIGN.md](DESIGN.md)) but not built yet.
+**Status: pre-alpha (Phase 2).** Read tools, policy file, change *planning* with
+diffs, and a hash-chained audit log, over stdio or authenticated HTTP. Applying
+changes (with auto-revert) is designed ([DESIGN.md](DESIGN.md)) but not built yet.
 
 Not affiliated with Deciso B.V. "OPNsense" is a trademark of Deciso B.V.
 
@@ -18,8 +19,8 @@ Not affiliated with Deciso B.V. "OPNsense" is a trademark of Deciso B.V.
 | Read path | GET only, path allowlist, verb denylist, traversal/encoding rejected, redirects not followed |
 | Writes (planned) | separate API user, plan → policy check → apply → auto-revert unless confirmed |
 | Rollback on 26.7+ (planned) | own object-level snapshot + revert (the savepoint API is gone in 26.7) |
-| Guardrails (planned) | allowlist policy file: interfaces, networks, rule limits, anti-lockout |
-| Audit (planned) | hash-chained JSONL + syslog |
+| Guardrails | allowlist policy file: interfaces, networks, rule limits, anti-lockout |
+| Audit | hash-chained JSONL (`audit verify` detects edits); syslog planned |
 | Transport | stdio, or Streamable HTTP that always needs a bearer token; optional TLS / mTLS |
 | Dangerous tools | none exist: no reboot, firmware, service control, SSH or XML edits |
 
@@ -95,13 +96,52 @@ HTTP never runs without authentication. The server refuses to start if:
 
 Repeated failed logins from one IP (10 a minute) are throttled with HTTP 429.
 
+## Policy and planning
+
+Without a `policy.yaml` the server is read-only. To enable planning, copy
+[`policy.example.yaml`](policy.example.yaml) to `policy.yaml` (or point
+`OPNSENSE_GUARD_POLICY` at it) and edit it. Unknown keys are an error.
+
+Planning tools (`rule_plan`, `alias_plan`) read the current state, apply every
+policy check, and return a diff plus the reasons for any refusal. **They never
+change the firewall.** Example result for a refused rule:
+
+```
++ [wan] pass in inet any from any to any '[mcp]'
+  interface 'wan' is not in the allowed interfaces
+  any -> any pass rules are forbidden
+  inbound pass rules on WAN are forbidden
+  every rule written by this server must have logging on
+```
+
+Built-in guardrails: only listed interfaces/actions/directions; every IP inside
+`allow_networks`; no any→any pass, WAN inbound pass, floating rules or rules
+without logging; edit only rules tagged `[mcp]` (unless `only_modify_own: false`);
+anti-lockout (no block rule that matches this server's own IP, and only new
+pass rules on the interface it reaches the API through).
+
+## Audit log
+
+Every plan (allowed or refused) and server start is written to
+`$OPNSENSE_GUARD_DATA_DIR/audit.jsonl` (default `./data`). Each line holds the
+hash of the previous one, so edits, deletions and reordering are detectable:
+
+```bash
+opnsense-guard-mcp audit verify
+opnsense-guard-mcp audit tail -n 20
+```
+
+Credentials are never written to it.
+
 ## Tools (read-only)
 
 `system_status`, `system_information`, `system_resources`, `service_list`,
 `posture_check`, `suricata_status`, `suricata_settings`, `suricata_alert_status`,
 `firewall_rules`, `firewall_rule_get`, `firewall_aliases`, `firewall_log`,
 `firewall_states`, `system_log`, `interfaces`, `arp_table`, `routing_table`,
-`dhcp_leases`, `raw_get`.
+`dhcp_leases`, `raw_get`, `policy_show`, `security_audit`.
+
+In write mode also: `rule_plan`, `alias_plan`, `plan_get`, `audit_tail`.
 
 ## Development
 

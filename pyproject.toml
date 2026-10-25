@@ -29,6 +29,7 @@ dependencies = [
     "pydantic>=2.7,<3",
     "starlette>=0.40",
     "uvicorn>=0.30",
+    "pyyaml>=6",
 ]
 
 [project.optional-dependencies]
@@ -38,6 +39,7 @@ dev = [
     "respx>=0.21",
     "ruff>=0.6",
     "mypy>=1.11",
+    "types-PyYAML",
 ]
 
 [project.scripts]

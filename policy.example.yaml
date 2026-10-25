@@ -1,0 +1,41 @@
+# opnsense-guard-mcp policy — EXAMPLE. Copy to policy.yaml and edit.
+# policy.yaml is git-ignored. All addresses below are placeholders.
+#
+# Allowlist style: anything not listed here is refused.
+# Without a policy file the server is read-only.
+
+mode: write                 # read_only | write
+
+writes:
+  confirm_timeout_s: 60     # auto-revert after this unless confirmed (writes: later release)
+  max_objects_per_change: 5
+  max_changes_per_hour: 10
+  require_human_confirm: true
+  tag: "[mcp]"              # added to every description this server writes
+  only_modify_own: true     # edit/delete only rules carrying the tag; false = full control
+
+  rules:
+    interfaces: [opt1, opt2]          # OPNsense interface tokens writes may touch
+    actions: [pass, block, reject]
+    directions: [in]
+    allow_networks:                   # every IP/CIDR in a rule must sit inside these
+      - 192.168.50.0/24
+      - 192.168.60.0/24
+    forbid:
+      any_to_any_pass: true
+      wan_inbound_pass: true
+      floating_rules: true
+      disable_logging: true           # every rule written has logging on
+    protect_uuids: []                 # rules that can never be touched
+
+  aliases:
+    name_prefix: "mcp_"
+    types: [host, network, port]
+    max_entries: 64
+
+anti_lockout:
+  enabled: true
+  mcp_host_ips: [192.168.60.10]       # this server's own address(es)
+  protected_interfaces: [opt2]        # interface(s) this server reaches the API through
+
+audit_reads: false

@@ -1,0 +1,184 @@
+"""Policy, audit and planning tools.
+
+* ``policy_show`` and ``security_audit`` are always available.
+* ``rule_plan``, ``alias_plan``, ``plan_get`` and ``audit_tail`` appear only
+  when the policy is in write mode. Planning never changes the firewall.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from typing import Any
+
+from mcp.server import MCPServer
+from mcp.server.mcpserver import Context
+from mcp.types import ToolAnnotations
+
+from opnsense_guard.audit import AuditLog
+from opnsense_guard.client import OPNsenseError, ReadClient
+from opnsense_guard.planner import AliasOp, Planner, PlanStore, RuleOp, normalise_rule
+from opnsense_guard.policy import Policy
+
+READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True)
+PLANNING = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=False)
+
+
+def actor_of(ctx: Context | None) -> str:
+    """'token:<name>' for HTTP clients, 'stdio' otherwise."""
+    try:
+        request = ctx.request_context.request if ctx is not None else None
+    except ValueError:
+        request = None
+    state = getattr(request, "scope", {}).get("state", {}) if request is not None else {}
+    name = state.get("token_name")
+    return f"token:{name}" if name else "stdio"
+
+
+def audit_rules(rows: list[dict[str, Any]], tag: str) -> dict[str, Any]:
+    """Flag risky rules in a searchRule result."""
+    findings: list[dict[str, str]] = []
+    counts = {"total": len(rows), "disabled": 0, "tagged_by_this_server": 0}
+
+    for raw in rows:
+        r = normalise_rule(raw)
+        ref = f"{raw.get('uuid', '?')} [{r['interface']}] '{r['description']}'"
+        if r["enabled"] == "0":
+            counts["disabled"] += 1
+            continue
+        if r["description"].startswith(tag):
+            counts["tagged_by_this_server"] += 1
+        if r["action"] == "pass" and r["source_net"] == "any" and r["destination_net"] == "any":
+            findings.append({"severity": "high", "rule": ref, "issue": "any -> any pass rule"})
+        if r["action"] == "pass" and "wan" in r["interface"].split(",") and r["direction"] == "in":
+            sev = "high" if r["destination_net"] == "any" else "medium"
+            findings.append({"severity": sev, "rule": ref, "issue": "inbound pass on WAN"})
+        if r["action"] == "pass" and r["log"] != "1":
+            findings.append({"severity": "low", "rule": ref, "issue": "pass rule without logging"})
+    return {"counts": counts, "findings": findings}
+
+
+def register_plan_tools(
+    mcp: MCPServer,
+    policy: Policy,
+    get_client: Callable[[], ReadClient],
+    audit: AuditLog,
+) -> None:
+    store = PlanStore()
+    planner = Planner(policy, get_client, store)
+
+    @mcp.tool(annotations=READ_ONLY)
+    async def policy_show() -> dict[str, Any]:
+        """What this server is allowed to change: mode, interfaces, networks, limits.
+
+        Read this before planning a change so you know the limits.
+        """
+        return policy.summary()
+
+    @mcp.tool(annotations=READ_ONLY)
+    async def security_audit() -> dict[str, Any]:
+        """Quick security review of the ruleset and IDS.
+
+        Flags any->any pass rules, inbound pass on WAN, pass rules without
+        logging, and an IDS that is not running.
+        """
+        result: dict[str, Any] = {}
+        try:
+            rules = await get_client().get(
+                "/api/firewall/filter/searchRule", params={"rowCount": 1000}
+            )
+            rows = rules.get("rows", []) if isinstance(rules, dict) else []
+            result["rules"] = audit_rules(rows, policy.writes.tag)
+        except OPNsenseError as exc:
+            result["rules"] = {"error": str(exc)}
+        try:
+            ids = await get_client().get("/api/ids/service/status")
+            status = ids.get("status") if isinstance(ids, dict) else None
+            result["ids"] = {"status": status}
+            if status != "running":
+                result["ids"]["finding"] = "IDS/IPS is not running"
+        except OPNsenseError as exc:
+            result["ids"] = {"error": str(exc)}
+        return result
+
+    if not policy.writable:
+        return
+
+    @mcp.tool(annotations=PLANNING)
+    async def rule_plan(operations: list[RuleOp], ctx: Context) -> dict[str, Any]:
+        """Plan firewall filter rule changes. CHANGES NOTHING on the firewall.
+
+        Returns a plan_id, a human-readable diff and any policy violations.
+        Show the diff to the user. Applying a plan is a separate step.
+
+        Each operation is one of:
+          {"op": "add", "rule": {action, interface, direction, protocol,
+              source_net, source_port, destination_net, destination_port,
+              log, enabled, description}}
+          {"op": "update", "uuid": "...", "changes": {<fields to change>}}
+          {"op": "delete", "uuid": "..."}
+          {"op": "toggle", "uuid": "...", "enabled": false}
+
+        Nets accept: any, (self), an allowed interface token (e.g. opt1, opt1ip),
+        an alias with the policy prefix, or an IP/CIDR inside allow_networks.
+        The policy tag is added to descriptions automatically.
+        """
+        actor = actor_of(ctx)
+        plan = await planner.plan_rules(operations, actor)
+        result = plan.to_dict()
+        audit.append(
+            "plan_created",
+            actor=actor,
+            plan_id=plan.id,
+            kind="rule",
+            status=result["status"],
+            violations=result["violations"],
+            objects=result["objects"],
+            policy_sha256=policy.sha256,
+        )
+        return result
+
+    @mcp.tool(annotations=PLANNING)
+    async def alias_plan(operations: list[AliasOp], ctx: Context) -> dict[str, Any]:
+        """Plan firewall alias changes. CHANGES NOTHING on the firewall.
+
+        Each operation is one of:
+          {"op": "create", "name": "mcp_x", "type": "host|network|port",
+              "entries": [...], "description": "..."}
+          {"op": "add_entries", "name": "mcp_x", "entries": [...]}
+          {"op": "remove_entries", "name": "mcp_x", "entries": [...]}
+          {"op": "delete", "name": "mcp_x"}
+
+        Alias names must use the policy prefix. Host/network entries must be
+        IPs/CIDRs inside allow_networks.
+        """
+        actor = actor_of(ctx)
+        plan = await planner.plan_aliases(operations, actor)
+        result = plan.to_dict()
+        audit.append(
+            "plan_created",
+            actor=actor,
+            plan_id=plan.id,
+            kind="alias",
+            status=result["status"],
+            violations=result["violations"],
+            objects=result["objects"],
+            policy_sha256=policy.sha256,
+        )
+        return result
+
+    @mcp.tool(annotations=READ_ONLY)
+    async def plan_get(plan_id: str) -> dict[str, Any]:
+        """Show a plan created in the last 15 minutes."""
+        plan = store.get(plan_id)
+        if plan is None:
+            return {"error": f"no plan {plan_id} (unknown or expired after 15 minutes)"}
+        return plan.to_dict()
+
+    @mcp.tool(annotations=READ_ONLY)
+    async def audit_tail(limit: int = 20) -> list[dict[str, Any]]:
+        """The last audit log events (plans, refusals, and later: changes).
+
+        Args:
+            limit: number of events (1-200).
+        """
+        return audit.tail(max(1, min(int(limit), 200)))

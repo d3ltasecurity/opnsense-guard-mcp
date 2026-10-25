@@ -8,7 +8,7 @@ UUID = "0b1c2d3e-1111-2222-3333-444455556666"
 
 async def test_all_tools_are_read_only(server: MCPServer) -> None:
     tools = await server.list_tools()
-    assert len(tools) == 19
+    assert len(tools) == 21  # 19 read + policy_show + security_audit
     for tool in tools:
         assert tool.annotations is not None
         assert tool.annotations.read_only_hint is True, tool.name
