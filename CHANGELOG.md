@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Verified against a real OPNsense 26.7.4 `getRule` reply (fixture added).
+  Plans now refuse rules using negation (`source_not`, `destination_not`,
+  `interfacenot`) or non-quick matching; new rules always get quick=1 and no
+  negation. `security_audit` skips OPNsense's automatic rules and treats
+  empty nets as "any".
+
 - Phase 2: `policy.yaml` (strict, allowlist, read-only when absent),
   `rule_plan` / `alias_plan` with diffs and policy checks (never write),
   anti-lockout guard, `policy_show`, `security_audit`, `plan_get`,

@@ -1,3 +1,5 @@
+import copy
+import json
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +17,9 @@ UNTAGGED = "0b1c2d3e-1111-2222-3333-777788889999"
 PROTECTED_IFACE_RULE = "0b1c2d3e-1111-2222-3333-aaaabbbbcccc"
 
 
+FIXTURE = json.loads((ROOT / "tests" / "fixtures" / "getrule_26_7.json").read_text())
+
+
 def options(selected: str, *others: str) -> dict[str, Any]:
     """The {key: {value, selected}} shape OPNsense uses for option fields."""
     out = {selected: {"value": selected.title(), "selected": 1}}
@@ -22,23 +27,27 @@ def options(selected: str, *others: str) -> dict[str, Any]:
     return out
 
 
-def api_rule(description: str, interface: str = "opt1", action: str = "block") -> dict[str, Any]:
-    return {
-        "rule": {
-            "enabled": "1",
-            "action": options(action, *({"pass", "block", "reject"} - {action})),
-            "interface": options(interface, "lan", "wan"),
-            "direction": options("in", "out"),
-            "ipprotocol": options("inet", "inet6"),
-            "protocol": options("TCP", "any", "UDP"),
+def select(field: dict[str, Any], key: str) -> dict[str, Any]:
+    return {k: {**v, "selected": 1 if k == key else 0} for k, v in field.items()}
+
+
+def api_rule(
+    description: str, interface: str = "opt1", action: str = "block", **flat: str
+) -> dict[str, Any]:
+    """A getRule reply in the real 26.7 shape (see tests/fixtures)."""
+    rule = copy.deepcopy(FIXTURE["rule"])
+    rule["interface"] = select(rule["interface"], interface)
+    rule["action"] = select(rule["action"], action)
+    rule.update(
+        {
             "source_net": "192.168.50.5",
-            "source_port": "",
             "destination_net": "any",
             "destination_port": "22",
-            "log": "1",
             "description": description,
+            **flat,
         }
-    }
+    )
+    return {"rule": rule}
 
 
 @pytest.fixture
@@ -288,3 +297,43 @@ async def test_alias_add_and_remove_entries(planner: Planner, alias_api: Any) ->
 async def test_alias_delete_missing(planner: Planner, alias_api: Any) -> None:
     result = await aplan(planner, AliasOp(op="delete", name="mcp_new"))
     assert any("not found" in v for v in result["violations"])
+
+
+# ------------------------------------------------- real 26.7 shape details
+
+
+def test_fixture_normalises_like_the_real_firewall() -> None:
+    r = normalise_rule(FIXTURE["rule"])
+    assert r["action"] == "pass"
+    assert r["interface"] == "opt1"
+    assert r["direction"] == "in"
+    assert r["protocol"] == "TCP"
+    assert r["log"] == "1"
+    assert (r["quick"], r["source_not"], r["destination_not"], r["interfacenot"]) == (
+        "1",
+        "0",
+        "0",
+        "0",
+    )
+
+
+@pytest.mark.parametrize(
+    ("flat", "fragment"),
+    [
+        ({"source_not": "1"}, "negation"),
+        ({"destination_not": "1"}, "negation"),
+        ({"interfacenot": "1"}, "negation"),
+        ({"quick": "0"}, "quick"),
+    ],
+)
+async def test_refuses_negated_or_non_quick_rules(
+    planner: Planner, api: respx.MockRouter, flat: dict[str, str], fragment: str
+) -> None:
+    api.get(f"/api/firewall/filter/getRule/{TAGGED}").respond(json=api_rule("[mcp] x", **flat))
+    result = await plan(planner, RuleOp(op="delete", uuid=TAGGED))
+    assert any(fragment in v for v in result["violations"]), result["violations"]
+
+
+async def test_new_rules_get_safe_fixed_fields(planner: Planner) -> None:
+    after = (await plan(planner, add()))["objects"][0]["after"]
+    assert (after["quick"], after["source_not"], after["destination_not"]) == ("1", "0", "0")

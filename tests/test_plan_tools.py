@@ -120,6 +120,31 @@ async def test_security_audit(server: MCPServer, api: respx.MockRouter) -> None:
                     "description": "[mcp] web",
                 },
                 {"uuid": "c", "enabled": "0", "action": "pass", "description": "old"},
+                {
+                    # automatic rules come back like this in 26.7: 32-hex id,
+                    # interface by description, empty nets meaning "any"
+                    "uuid": "fae559338f65e11c53669fc3642c93c2",
+                    "enabled": "1",
+                    "action": "pass",
+                    "direction": "out",
+                    "source_net": "",
+                    "destination_net": "",
+                    "log": True,
+                    "description": "let out anything from firewall host itself",
+                    "legacy": True,
+                    "is_automatic": True,
+                },
+                {
+                    "uuid": "d",
+                    "enabled": "1",
+                    "action": "pass",
+                    "interface": "opt1",
+                    "direction": "in",
+                    "source_net": "",
+                    "destination_net": "",
+                    "log": "1",
+                    "description": "empty nets mean any",
+                },
             ]
         }
     )
@@ -129,7 +154,15 @@ async def test_security_audit(server: MCPServer, api: respx.MockRouter) -> None:
     assert ("high", "any -> any pass rule") in issues
     assert ("medium", "inbound pass on WAN") in issues
     assert ("low", "pass rule without logging") in issues
-    assert result["rules"]["counts"] == {"total": 3, "disabled": 1, "tagged_by_this_server": 1}
+    assert result["rules"]["counts"] == {
+        "total": 5,
+        "automatic": 1,
+        "disabled": 1,
+        "tagged_by_this_server": 1,
+    }
+    flagged = [f["rule"] for f in result["rules"]["findings"]]
+    assert not any("let out anything" in ref for ref in flagged)
+    assert any("empty nets mean any" in ref for ref in flagged)
     assert result["ids"]["finding"] == "IDS/IPS is not running"
 
 
