@@ -35,7 +35,7 @@ Not affiliated with Deciso B.V. "OPNsense" is a trademark of Deciso B.V.
    | Privilege | Used by |
    |---|---|
    | Firewall: Rules [new] | `firewall_rules`, `firewall_rule_get`, planning |
-   | Firewall: Aliases | `firewall_aliases`, planning |
+   | Firewall: Aliases (view-only) | `firewall_aliases`, planning |
    | Status: Interfaces | `interfaces` |
    | Status: Services | `service_list` |
    | Diagnostics: ARP Table | `arp_table` |
@@ -48,8 +48,8 @@ Not affiliated with Deciso B.V. "OPNsense" is a trademark of Deciso B.V.
    | Services: DHCP: Kea(v4) / Services: Dnsmasq DNS/DHCP: Settings | `dhcp_leases` |
    | System: Firmware *(optional)* | `system_status`. It also allows installing updates, so leave it out unless you need it. |
 
-   OPNsense has no true view-only privileges: several of these also allow
-   edits through the API. The server itself only ever sends GET requests with
+   Most OPNsense privileges are not view-only (*Firewall: Aliases* is an
+   exception): several of these also allow edits through the API. The server itself only ever sends GET requests with
    this key, but keep the list short.
 2. Install:
 
@@ -154,7 +154,8 @@ OPNSENSE_WRITE_API_SECRET=...
 ```
 
 Give that user exactly two privileges: **Firewall: Rules [new]** and
-**Firewall: Aliases**, no group. Over HTTP, the
+**Firewall: Alias: Edit**, no group. (Plain *Firewall: Aliases* is view-only:
+it allows search/get but not addItem/setItem/delItem/reconfigure.) Over HTTP, the
 change tools need a token with `--scope write`.
 
 The flow:
