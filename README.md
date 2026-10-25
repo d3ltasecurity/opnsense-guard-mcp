@@ -5,8 +5,8 @@ A safety-first [MCP](https://modelcontextprotocol.io) server for **OPNsense 26.7
 > **Read-only by default. Every write is planned, policy-checked, logged, and
 > auto-reverted unless you confirm it.**
 
-**Status: pre-alpha (Phase 0).** Read tools only. Writes, policy file, audit
-log and authenticated HTTP are designed ([DESIGN.md](DESIGN.md)) but not built yet.
+**Status: pre-alpha (Phase 1).** Read tools over stdio or authenticated HTTP.
+Writes, policy file and audit log are designed ([DESIGN.md](DESIGN.md)) but not built yet.
 
 Not affiliated with Deciso B.V. "OPNsense" is a trademark of Deciso B.V.
 
@@ -20,7 +20,7 @@ Not affiliated with Deciso B.V. "OPNsense" is a trademark of Deciso B.V.
 | Rollback on 26.7+ (planned) | own object-level snapshot + revert (the savepoint API is gone in 26.7) |
 | Guardrails (planned) | allowlist policy file: interfaces, networks, rule limits, anti-lockout |
 | Audit (planned) | hash-chained JSONL + syslog |
-| Transport | stdio now; HTTP with bearer tokens / mTLS planned |
+| Transport | stdio, or Streamable HTTP that always needs a bearer token; optional TLS / mTLS |
 | Dangerous tools | none exist: no reboot, firmware, service control, SSH or XML edits |
 
 ## Quick start (read-only)
@@ -53,6 +53,47 @@ Not affiliated with Deciso B.V. "OPNsense" is a trademark of Deciso B.V.
    ```bash
    claude mcp add opnsense -- opnsense-guard-mcp --env-file /path/to/.env
    ```
+
+## HTTP mode (shared server)
+
+HTTP never runs without authentication. The server refuses to start if:
+
+- there are no tokens, or
+- it binds to a non-loopback address without TLS
+  (override with `MCP_ALLOW_PLAINTEXT=true` only behind a TLS proxy).
+
+1. Create a token per client. It is printed once; only its SHA-256 is stored:
+
+   ```bash
+   opnsense-guard-mcp token new --name laptop --scope read
+   ```
+
+   `token list` shows names and scopes; `token revoke --name laptop` takes
+   effect on the next request, no restart needed.
+
+2. Start the server:
+
+   ```bash
+   MCP_TRANSPORT=http MCP_HOST=0.0.0.0 MCP_PORT=8848 \
+   MCP_TLS_CERT=server.pem MCP_TLS_KEY=server.key \
+   opnsense-guard-mcp
+   ```
+
+3. Point the client at `https://<host>:8848/mcp` with header
+   `Authorization: Bearer <token>`.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MCP_HOST` / `MCP_PORT` | `127.0.0.1` / `8848` | listen address |
+| `OPNSENSE_GUARD_TOKENS_FILE` | `./tokens.json` | token hashes |
+| `MCP_TLS_CERT` / `MCP_TLS_KEY` | – | serve HTTPS |
+| `MCP_TLS_CLIENT_CA` | – | require client certificates (mTLS) |
+| `MCP_ALLOWED_HOSTS` | `localhost`/`127.0.0.1`/`MCP_HOST` on the port | accepted `Host` headers (DNS-rebinding guard) |
+| `MCP_ALLOWED_ORIGINS` | none | browser origins allowed; any other `Origin` is refused |
+| `MCP_RATE_LIMIT_PER_MIN` | `120` | requests per token per minute |
+| `MCP_ALLOW_PLAINTEXT` | `false` | allow plain HTTP on a non-loopback address |
+
+Repeated failed logins from one IP (10 a minute) are throttled with HTTP 429.
 
 ## Tools (read-only)
 

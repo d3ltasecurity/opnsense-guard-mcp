@@ -73,8 +73,8 @@ def test_check_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert exc.value.code == 2
 
 
-def test_http_transport_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MCP_TRANSPORT", "http")
+def test_unknown_transport_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MCP_TRANSPORT", "sse")
     with pytest.raises(SystemExit) as exc:
         main(["--env-file", str(tmp_path / "none.env")])
     assert exc.value.code == 2
