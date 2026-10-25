@@ -27,8 +27,30 @@ Not affiliated with Deciso B.V. "OPNsense" is a trademark of Deciso B.V.
 
 ## Quick start (read-only)
 
-1. In OPNsense, create an API user with **config read-only** set and
-   privileges for the pages you want to expose. Create an API key for it.
+1. In OPNsense (**System → Access → Users**), create a user with a scrambled
+   password, **no group** (not `admins`) and these privileges, then create an
+   API key for it. Skip any that aren't installed; the matching tool just
+   reports "forbidden".
+
+   | Privilege | Used by |
+   |---|---|
+   | Firewall: Rules [new] | `firewall_rules`, `firewall_rule_get`, planning |
+   | Firewall: Aliases | `firewall_aliases`, planning |
+   | Status: Interfaces | `interfaces` |
+   | Status: Services | `service_list` |
+   | Diagnostics: ARP Table | `arp_table` |
+   | Diagnostics: Routing tables | `routing_table` |
+   | Diagnostics: Show States | `firewall_states` |
+   | Diagnostics: Logs: Firewall: Live View | `firewall_log` |
+   | Diagnostics: Logs: System | `system_log` |
+   | Lobby: Dashboard | `system_information`, `system_resources`, health probe |
+   | Services: Intrusion Detection | `suricata_*` |
+   | Services: DHCP: Kea(v4) / Services: Dnsmasq DNS/DHCP: Settings | `dhcp_leases` |
+   | System: Firmware *(optional)* | `system_status`. It also allows installing updates, so leave it out unless you need it. |
+
+   OPNsense has no true view-only privileges: several of these also allow
+   edits through the API. The server itself only ever sends GET requests with
+   this key, but keep the list short.
 2. Install:
 
    ```bash
@@ -131,7 +153,8 @@ OPNSENSE_WRITE_API_KEY=...      # a different OPNsense user than the read one
 OPNSENSE_WRITE_API_SECRET=...
 ```
 
-Give that user privileges for firewall rules and aliases only. Over HTTP, the
+Give that user exactly two privileges: **Firewall: Rules [new]** and
+**Firewall: Aliases**, no group. Over HTTP, the
 change tools need a token with `--scope write`.
 
 The flow:

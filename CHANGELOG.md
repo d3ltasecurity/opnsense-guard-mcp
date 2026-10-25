@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Works with a least-privilege read user (tested on a real 26.7.4).
+  OPNsense matches privileges against the literal snake_case URL, so the
+  camelCase spellings (`getArp`) were refused for non-admin users even with
+  the right privilege. ARP, routes, states and system info now use
+  snake_case paths. The health probe moved from `core/firmware/status`
+  (needs System: Firmware, which allows updates) to the dashboard's
+  `system_information`. README lists the exact privileges for both users.
+- Real 26.7.4 replies: a missing rule or alias name answers `[]`, and
+  `getItem` for a missing alias uuid answers a blank template. The planner
+  now treats a template whose name doesn't match as "absent"; the fake
+  firewall in the tests matches these shapes.
+
 - Phase 3 (fake-firewall tested only): write client with an exact endpoint
   allowlist and a separate API user; SQLite change journal; `change_apply`
   with human approval (elicitation or explicit `user_confirmed`), drift check,

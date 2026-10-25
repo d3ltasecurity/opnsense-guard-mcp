@@ -232,11 +232,12 @@ async def test_planning_never_writes(planner: Planner, rules_api: respx.MockRout
 
 @pytest.fixture
 def alias_api(api: respx.MockRouter) -> respx.MockRouter:
-    api.get("/api/firewall/alias/getAliasUUID/mcp_new").respond(json={})
+    api.get("/api/firewall/alias/getAliasUUID/mcp_new").respond(json=[])  # real 26.7 reply
     api.get("/api/firewall/alias/getAliasUUID/mcp_hosts").respond(json={"uuid": TAGGED})
     api.get(f"/api/firewall/alias/getItem/{TAGGED}").respond(
         json={
             "alias": {
+                "name": "mcp_hosts",
                 "type": options("host", "network", "port"),
                 "content": {
                     "192.168.50.5": {"value": "192.168.50.5", "selected": 1},
@@ -247,6 +248,17 @@ def alias_api(api: respx.MockRouter) -> respx.MockRouter:
         }
     )
     return api
+
+
+async def test_blank_alias_template_counts_as_missing(
+    planner: Planner, api: respx.MockRouter
+) -> None:
+    # Real 26.7: getItem for a uuid that no longer exists returns a blank template.
+    api.get("/api/firewall/alias/getAliasUUID/mcp_gone").respond(json={"uuid": TAGGED})
+    api.get(f"/api/firewall/alias/getItem/{TAGGED}").respond(
+        json={"alias": {"name": "", "type": options("host"), "content": {}, "description": ""}}
+    )
+    assert await planner.get_alias("mcp_gone") == (None, None)
 
 
 async def aplan(planner: Planner, *ops: AliasOp) -> dict[str, Any]:

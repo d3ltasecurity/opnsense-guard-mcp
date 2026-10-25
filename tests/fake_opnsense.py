@@ -1,7 +1,9 @@
 """A small stateful fake of the OPNsense filter + alias API, for respx.
 
 Replies follow the 26.7 shapes (see tests/fixtures/getrule_26_7.json):
-option fields as {key: {value, selected}}, missing objects as {}.
+option fields as {key: {value, selected}}. Checked on a real 26.7.4: a missing
+rule or alias name answers [], and getItem for a missing alias uuid answers a
+blank "new alias" template.
 Fault hooks let tests break individual steps.
 """
 
@@ -108,7 +110,7 @@ class FakeOPNsense:
     def get_rule(self, request: httpx.Request, uid: str) -> httpx.Response:
         rule = self.rules.get(uid)
         if rule is None:
-            return self._json({})
+            return self._json([])
         out: dict[str, Any] = dict(rule)
         for name, keys in OPTION_FIELDS.items():
             out[name] = _opts(rule[name], keys)
@@ -151,12 +153,13 @@ class FakeOPNsense:
         for uid, alias in self.aliases.items():
             if alias["name"] == name:
                 return self._json({"uuid": uid})
-        return self._json({})
+        return self._json([])
 
     def alias_get(self, request: httpx.Request, uid: str) -> httpx.Response:
         alias = self.aliases.get(uid)
         if alias is None:
-            return self._json({})
+            blank = {"name": "", "type": _opts("host", ALIAS_TYPES), "content": {}}
+            return self._json({"alias": {**blank, "description": ""}})
         entries = [e for e in alias["content"].split("\n") if e]
         return self._json(
             {
@@ -222,7 +225,7 @@ class FakeOPNsense:
         route("POST", rf"{a}/setItem/(?P<uid>{UUID})", self.alias_set)
         route("POST", rf"{a}/delItem/(?P<uid>{UUID})", self.alias_del)
         route("POST", rf"{a}/reconfigure", self.reconfigure)
-        route("GET", r"/api/core/firmware/status", self.health)
+        route("GET", r"/api/diagnostics/system/system_information", self.health)
 
     def snapshot(self) -> dict[str, Any]:
         return copy.deepcopy({"rules": self.rules, "aliases": self.aliases})
