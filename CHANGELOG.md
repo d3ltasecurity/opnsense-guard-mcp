@@ -9,6 +9,8 @@
   snake_case paths. The health probe moved from `core/firmware/status`
   (needs System: Firmware, which allows updates) to the dashboard's
   `system_information`. README lists the exact privileges for both users.
+  The write user needs *Firewall: Alias: Edit*; *Firewall: Aliases* is view-only
+  (found by the live alias test).
 - Real 26.7.4 replies: a missing rule or alias name answers `[]`, and
   `getItem` for a missing alias uuid answers a blank template. The planner
   now treats a template whose name doesn't match as "absent"; the fake
