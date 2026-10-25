@@ -36,7 +36,9 @@ from opnsense_guard.planner import (
 )
 from opnsense_guard.policy import Policy
 
-HEALTH_PATH = "/api/core/firmware/status"
+# Dashboard endpoint: a least-privilege read user can reach it (firmware/status
+# needs System: Firmware, which also allows installing updates).
+HEALTH_PATH = "/api/diagnostics/system/system_information"
 COMMIT_PATH = {"rule": "/api/firewall/filter/apply", "alias": "/api/firewall/alias/reconfigure"}
 
 

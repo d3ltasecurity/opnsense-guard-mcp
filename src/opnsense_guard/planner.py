@@ -580,6 +580,9 @@ class Planner:
         raw = data.get("alias") if isinstance(data, dict) else None
         if not isinstance(raw, dict):
             return None, f"alias {name}: unexpected response"
+        # A missing uuid returns a blank "new alias" template, not an error.
+        if flatten(raw.get("name", "")) != name:
+            return None, None
         content = flatten(raw.get("content", ""))
         entries = [e for e in re.split(r"[,\n]", content) if e.strip()]
         return {

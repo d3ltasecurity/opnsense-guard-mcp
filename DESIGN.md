@@ -150,7 +150,7 @@ in 26.7. We do it ourselves at object level.
    *before* sending anything.
 3. Send the writes, then `apply`. Record new UUIDs for added objects.
 4. Re-read and store the **after** snapshot. Verify it matches the plan.
-5. Health probe: a cheap GET (`/api/core/firmware/status`). If the API is no
+5. Health probe: a cheap GET (`/api/diagnostics/system/system_information`). If the API is no
    longer reachable → revert immediately (see lockout below).
 6. Start the revert timer (default 60 s, policy-set, max 600 s).
 

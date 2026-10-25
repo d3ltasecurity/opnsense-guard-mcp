@@ -49,18 +49,18 @@ def register_read_tools(mcp: MCPServer, get_client: Callable[[], ReadClient]) ->
 
     @mcp.tool(annotations=READ_ONLY)
     async def system_status() -> Any:
-        """OPNsense firmware version, architecture, and pending update status."""
+        """OPNsense firmware version and pending updates (needs the System: Firmware privilege)."""
         return await safe("/api/core/firmware/status")
 
     @mcp.tool(annotations=READ_ONLY)
     async def system_information() -> Any:
         """Hostname, uptime, load, and general system information."""
-        return await safe("/api/diagnostics/system/systemInformation")
+        return await safe("/api/diagnostics/system/system_information")
 
     @mcp.tool(annotations=READ_ONLY)
     async def system_resources() -> Any:
         """Memory, swap, and disk utilisation of the firewall itself."""
-        return await safe("/api/diagnostics/system/systemResources")
+        return await safe("/api/diagnostics/system/system_resources")
 
     @mcp.tool(annotations=READ_ONLY)
     async def service_list() -> Any:
@@ -203,7 +203,7 @@ def register_read_tools(mcp: MCPServer, get_client: Callable[[], ReadClient]) ->
         params: dict[str, Any] = {"rowCount": _clamp(limit)}
         if search:
             params["searchPhrase"] = search
-        return await safe("/api/diagnostics/firewall/queryStates", params=params)
+        return await safe("/api/diagnostics/firewall/query_states", params=params)
 
     @mcp.tool(annotations=READ_ONLY)
     async def system_log(limit: int = 100) -> Any:
@@ -224,12 +224,12 @@ def register_read_tools(mcp: MCPServer, get_client: Callable[[], ReadClient]) ->
     @mcp.tool(annotations=READ_ONLY)
     async def arp_table() -> Any:
         """ARP table: IP to MAC mappings currently known to the firewall."""
-        return await safe("/api/diagnostics/interface/getArp")
+        return await safe("/api/diagnostics/interface/get_arp")
 
     @mcp.tool(annotations=READ_ONLY)
     async def routing_table() -> Any:
         """The firewall's active routing table."""
-        return await safe("/api/diagnostics/interface/getRoutes")
+        return await safe("/api/diagnostics/interface/get_routes")
 
     @mcp.tool(annotations=READ_ONLY)
     async def dhcp_leases() -> dict[str, Any]:
