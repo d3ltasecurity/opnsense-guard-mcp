@@ -27,6 +27,8 @@ dependencies = [
     "mcp>=2.3,<3",
     "httpx>=0.27,<1",
     "pydantic>=2.7,<3",
+    "starlette>=0.40",
+    "uvicorn>=0.30",
 ]
 
 [project.optional-dependencies]
@@ -62,7 +64,7 @@ select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF"]
 ignore = ["S101"]  # asserts are fine in tests
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S105", "S106"]  # fake credentials in tests
+"tests/*" = ["S104", "S105", "S106"]  # fake credentials and bind addresses in tests
 
 [tool.mypy]
 python_version = "3.11"

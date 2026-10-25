@@ -17,4 +17,5 @@ credentials, or skip the audit log.
 
 - Read path is GET-only with a path allowlist and verb denylist.
 - No tool exists for reboot, firmware, service control, SSH or config XML.
+- HTTP always requires a bearer token; plain HTTP off-loopback is refused.
 - Secrets come only from environment variables and are never logged.

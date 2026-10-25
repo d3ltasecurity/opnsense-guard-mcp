@@ -12,3 +12,5 @@ audit*.jsonl
 *.sqlite
 local/
 policy.yaml
+tokens.json
+*.pem
