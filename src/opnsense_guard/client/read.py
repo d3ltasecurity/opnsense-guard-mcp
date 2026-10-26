@@ -2,7 +2,11 @@
 
 Design rules (do not relax without a security review):
 
-1. GET only. This class has no method that sends POST/PUT/DELETE.
+1. GET only, with one exception: ``search()`` POSTs to the exact paths in
+   SEARCH_POST_PATHS, because some OPNsense list endpoints answer nothing
+   useful to a GET. It builds the body itself from three typed fields
+   (current, rowCount, searchPhrase), so callers cannot add others. No
+   method sends PUT/DELETE.
 2. Paths are normalised and rejected if they contain anything that could
    smuggle a different endpoint past the checks (``..``, ``%``, ``?``, ``#``,
    backslashes, empty segments, non-ASCII).
@@ -103,6 +107,15 @@ DENIED_COMMAND_PREFIXES: tuple[str, ...] = (
     "upload",
 )
 
+# Search endpoints that need POST. Exact paths only, never prefixes.
+SEARCH_POST_PATHS: frozenset[str] = frozenset(
+    {
+        "/api/diagnostics/firewall/query_states",  # GET returns 0 rows on 26.7.4
+        "/api/firewall/filter/searchRule",  # GET ignores rowCount/searchPhrase
+    }
+)
+MAX_SEARCH_PHRASE = 200
+
 _SEGMENT_RE = re.compile(r"^[A-Za-z0-9_.\-]+$")
 
 
@@ -146,7 +159,7 @@ def check_read_path(path: str) -> str:
 
 
 class ReadClient:
-    """Minimal async, GET-only client for the OPNsense REST API."""
+    """Minimal async client for the OPNsense REST API: GET, plus search() POSTs."""
 
     def __init__(
         self,
@@ -174,8 +187,27 @@ class ReadClient:
         """Guarded GET. Raises PathNotAllowed or OPNsenseError."""
         path = check_read_path(path)
 
+        return await self._send("GET", path, params=params)
+
+    async def search(
+        self, path: str, row_count: int, search_phrase: str = "", current: int = 1
+    ) -> Any:
+        """POST a search to one of SEARCH_POST_PATHS. Raises PathNotAllowed or OPNsenseError."""
+        path = check_read_path(path)
+        if path not in SEARCH_POST_PATHS:
+            raise PathNotAllowed(f"refused '{path}': not a POST search endpoint")
+        if len(search_phrase) > MAX_SEARCH_PHRASE:
+            raise PathNotAllowed(f"refused: search phrase over {MAX_SEARCH_PHRASE} characters")
+        body = {
+            "current": max(1, int(current)),
+            "rowCount": max(1, int(row_count)),
+            "searchPhrase": str(search_phrase),
+        }
+        return await self._send("POST", path, json=body)
+
+    async def _send(self, method: str, path: str, **kwargs: Any) -> Any:
         try:
-            response = await self._http.get(path, params=params)
+            response = await self._http.request(method, path, **kwargs)
         except httpx.ConnectTimeout as exc:
             raise OPNsenseError(f"timed out connecting to {self.settings.url}") from exc
         except httpx.ConnectError as exc:

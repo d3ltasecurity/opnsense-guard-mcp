@@ -51,7 +51,7 @@ Checked 2026-10-25 via the PyPI JSON API and GitHub search. Register both early.
  │                                    hash-chained,       journal +  │
  │                                    optional syslog)    rollback   │
  │                                         │                 │       │
- │            ReadClient (GET only)   WriteClient (POST, allowlist)  │
+ │            ReadClient (GET+search) WriteClient (POST, allowlist)  │
  └──────────────┬───────────────────────────┬────────────────────────┘
                 │ API user: mcp-readonly    │ API user: mcp-write
                 ▼                           ▼
@@ -63,7 +63,7 @@ Key rules:
 1. **Two clients, two API users.** Reads use a user with `user-config-readonly`.
    Writes use a second user whose privileges cover only firewall rules + aliases.
    No write key configured → write tools are not even registered.
-2. **Allowlist only.** Read client: GET + path-prefix allowlist + verb denylist
+2. **Allowlist only.** Read client: GET (+ POST search to two exact paths) + path-prefix allowlist + verb denylist
    (kept from the current server). Write client: POST to a fixed list of exact
    endpoints (`addRule`, `setRule`, `delRule`, `toggleRule`, `apply`, alias
    equivalents) — nothing else exists in code.

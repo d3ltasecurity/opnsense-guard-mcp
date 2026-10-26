@@ -28,7 +28,7 @@ WATCHED_SERVICES = ("suricata", "ids", "zenarmor", "sensei", "syslog", "unbound"
 
 DHCP_BACKENDS = {
     "kea": "/api/kea/leases4/search",
-    "isc": "/api/dhcpv4/leases/searchLease",
+    "isc": "/api/dhcpv4/leases/search_lease",
     "dnsmasq": "/api/dnsmasq/leases/search",
 }
 
@@ -66,6 +66,12 @@ def register_read_tools(mcp: MCPServer, get_client: Callable[[], ReadClient]) ->
     async def safe(path: str, params: dict[str, Any] | None = None) -> Any:
         try:
             return await get_client().get(path, params=params)
+        except OPNsenseError as exc:
+            return {"error": str(exc), "path": path}
+
+    async def safe_search(path: str, limit: int, search: str) -> Any:
+        try:
+            return await get_client().search(path, row_count=_clamp(limit), search_phrase=search)
         except OPNsenseError as exc:
             return {"error": str(exc), "path": path}
 
@@ -175,23 +181,11 @@ def register_read_tools(mcp: MCPServer, get_client: Callable[[], ReadClient]) ->
             limit: maximum rules to return (1-1000).
             detail: return the full OPNsense rows instead of one-line summaries.
         """
-        params: dict[str, Any] = {"rowCount": _clamp(limit)}
-        if search:
-            params["searchPhrase"] = search
-        result = await safe("/api/firewall/filter/searchRule", params=params)
+        # POST: a GET here ignores rowCount and searchPhrase on 26.7.4.
+        result = await safe_search("/api/firewall/filter/searchRule", limit, search)
         if not isinstance(result, dict) or not isinstance(result.get("rows"), list):
             return result
-        # 26.7 ignores rowCount and searchPhrase on a GET here, so apply both ourselves.
-        rows = [row for row in result["rows"] if isinstance(row, dict)]
-        if search:
-            needle = search.lower()
-            rows = [
-                row
-                for row in rows
-                if needle in _compact_rule(row)["rule"].lower()
-                or any(needle in str(v).lower() for v in row.values())
-            ]
-        rows = rows[: _clamp(limit)]
+        rows = [row for row in result["rows"] if isinstance(row, dict)][: _clamp(limit)]
         if detail:
             return {**result, "rows": rows, "rowCount": len(rows)}
         return {
@@ -240,17 +234,15 @@ def register_read_tools(mcp: MCPServer, get_client: Callable[[], ReadClient]) ->
         return await safe("/api/diagnostics/firewall/log", params=params)
 
     @mcp.tool(annotations=READ_ONLY)
-    async def firewall_states(limit: int = 100, search: str = "") -> Any:
+    async def firewall_states(limit: int = 25, search: str = "") -> Any:
         """Active connection state table.
 
         Args:
             limit: number of states to return (1-1000).
             search: optional filter on address or port.
         """
-        params: dict[str, Any] = {"rowCount": _clamp(limit)}
-        if search:
-            params["searchPhrase"] = search
-        return await safe("/api/diagnostics/firewall/query_states", params=params)
+        # POST: a GET here returns no rows on 26.7.4.
+        return await safe_search("/api/diagnostics/firewall/query_states", limit, search)
 
     @mcp.tool(annotations=READ_ONLY)
     async def system_log(limit: int = 100) -> Any:
