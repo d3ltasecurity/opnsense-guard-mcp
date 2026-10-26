@@ -179,9 +179,21 @@ def register_read_tools(mcp: MCPServer, get_client: Callable[[], ReadClient]) ->
         if search:
             params["searchPhrase"] = search
         result = await safe("/api/firewall/filter/searchRule", params=params)
-        if detail or not isinstance(result, dict) or not isinstance(result.get("rows"), list):
+        if not isinstance(result, dict) or not isinstance(result.get("rows"), list):
             return result
-        rows = result["rows"]
+        # 26.7 ignores rowCount and searchPhrase on a GET here, so apply both ourselves.
+        rows = [row for row in result["rows"] if isinstance(row, dict)]
+        if search:
+            needle = search.lower()
+            rows = [
+                row
+                for row in rows
+                if needle in _compact_rule(row)["rule"].lower()
+                or any(needle in str(v).lower() for v in row.values())
+            ]
+        rows = rows[: _clamp(limit)]
+        if detail:
+            return {**result, "rows": rows, "rowCount": len(rows)}
         return {
             "total": result.get("total", len(rows)),
             "shown": len(rows),

@@ -79,7 +79,22 @@ async def test_firewall_rules_are_one_line_each(server: MCPServer, api: respx.Mo
     )
     api.get("/api/firewall/filter/searchRule").respond(json={"rows": [row]})
     full = await call(server, "firewall_rules", {"detail": True})
+    assert full["rowCount"] == 1
     assert full["rows"][0]["gateway"] == "x" * 2000
+
+
+async def test_firewall_rules_filters_and_limits_itself(
+    server: MCPServer, api: respx.MockRouter
+) -> None:
+    # Real 26.7.4 ignores rowCount/searchPhrase on GET searchRule.
+    rows = [{"uuid": str(i), "description": f"rule {i}", "action": "pass"} for i in range(10)]
+    rows[7]["description"] = "Kali DMZ"
+    api.get("/api/firewall/filter/searchRule").respond(json={"rows": rows, "total": 10})
+    found = await call(server, "firewall_rules", {"search": "kali"})
+    assert [r["uuid"] for r in found["rows"]] == ["7"]
+    first = await call(server, "firewall_rules", {"limit": 3})
+    assert first["total"] == 10
+    assert first["shown"] == 3
 
 
 async def test_firewall_rule_get(server: MCPServer, api: respx.MockRouter) -> None:
