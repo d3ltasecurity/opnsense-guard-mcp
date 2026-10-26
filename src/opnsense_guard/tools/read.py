@@ -15,6 +15,7 @@ from mcp.server import MCPServer
 from mcp.types import ToolAnnotations
 
 from opnsense_guard.client import OPNsenseError, ReadClient
+from opnsense_guard.planner import describe_rule, flatten, normalise_rule
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True)
 
@@ -34,6 +35,29 @@ DHCP_BACKENDS = {
 
 def _clamp(limit: int) -> int:
     return max(1, min(int(limit), MAX_LIMIT))
+
+
+def _compact_rule(row: dict[str, Any]) -> dict[str, str]:
+    """One line per rule. A full row is ~1.5 KB; 40 of them swamp a chat."""
+    # Automatic rules say True/False where user rules say 1/0, and leave
+    # fields empty that mean "any".
+    r = {k: {"True": "1", "False": "0"}.get(v, v) for k, v in normalise_rule(row).items()}
+    for field in ("interface", "protocol", "source_net", "destination_net"):
+        r[field] = r[field] or "any"
+    # Show negation, or "from !lan" would read as "from lan".
+    for flag, field in (
+        ("interfacenot", "interface"),
+        ("source_not", "source_net"),
+        ("destination_not", "destination_net"),
+    ):
+        if r[flag] == "1":
+            r[field] = "!" + r[field]
+    text = describe_rule(r).removeprefix("#(auto) ")  # no sequence: built-in order
+    if r["quick"] == "0":
+        text += " (not quick: a later match wins)"
+    if flatten(row.get("is_automatic", "")) in ("1", "True"):
+        text = "[auto] " + text
+    return {"uuid": str(row.get("uuid", "")), "rule": text}
 
 
 def register_read_tools(mcp: MCPServer, get_client: Callable[[], ReadClient]) -> None:
@@ -69,12 +93,12 @@ def register_read_tools(mcp: MCPServer, get_client: Callable[[], ReadClient]) ->
 
     @mcp.tool(annotations=READ_ONLY)
     async def posture_check() -> dict[str, Any]:
-        """Health snapshot: firmware, services, IDS state.
+        """Health snapshot: system, services, IDS state.
 
         Flags security-relevant services that are installed but not running.
         """
         snapshot: dict[str, Any] = {
-            "firmware": await safe("/api/core/firmware/status"),
+            "system": await safe("/api/diagnostics/system/system_information"),
             "ids_service": await safe("/api/ids/service/status"),
         }
         services = await safe("/api/core/service/search")
@@ -141,17 +165,28 @@ def register_read_tools(mcp: MCPServer, get_client: Callable[[], ReadClient]) ->
     # ------------------------------------------------------------ firewall
 
     @mcp.tool(annotations=READ_ONLY)
-    async def firewall_rules(search: str = "", limit: int = 200) -> Any:
-        """The firewall filter ruleset.
+    async def firewall_rules(search: str = "", limit: int = 50, detail: bool = False) -> Any:
+        """The firewall filter ruleset, one line per rule.
+
+        Use firewall_rule_get for every field of one rule.
 
         Args:
             search: optional text filter (interface, description, address).
             limit: maximum rules to return (1-1000).
+            detail: return the full OPNsense rows instead of one-line summaries.
         """
         params: dict[str, Any] = {"rowCount": _clamp(limit)}
         if search:
             params["searchPhrase"] = search
-        return await safe("/api/firewall/filter/searchRule", params=params)
+        result = await safe("/api/firewall/filter/searchRule", params=params)
+        if detail or not isinstance(result, dict) or not isinstance(result.get("rows"), list):
+            return result
+        rows = result["rows"]
+        return {
+            "total": result.get("total", len(rows)),
+            "shown": len(rows),
+            "rows": [_compact_rule(row) for row in rows if isinstance(row, dict)],
+        }
 
     @mcp.tool(annotations=READ_ONLY)
     async def firewall_rule_get(uuid: str) -> Any:

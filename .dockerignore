@@ -1,0 +1,12 @@
+.git
+.venv
+.env
+*.env
+local
+data
+dist
+tests
+**/__pycache__
+*.pem
+tokens.json
+policy.yaml

@@ -34,6 +34,54 @@ async def test_firewall_rules_params_and_clamp(server: MCPServer, api: respx.Moc
     assert params["searchPhrase"] == "dmz"
 
 
+async def test_firewall_rules_are_one_line_each(server: MCPServer, api: respx.MockRouter) -> None:
+    row = {
+        "uuid": UUID,
+        "sequence": "10",
+        "enabled": "1",
+        "action": "block",
+        "interface": "opt1",
+        "direction": "in",
+        "ipprotocol": "inet",
+        "protocol": "TCP",
+        "source_net": "lan",
+        "source_not": "1",
+        "destination_net": "any",
+        "destination_port": "22",
+        "description": "[mcp] test",
+        "gateway": "x" * 2000,
+    }
+    api.get("/api/firewall/filter/searchRule").respond(json={"rows": [row], "total": 38})
+    result = await call(server, "firewall_rules")
+    assert result["total"] == 38
+    assert result["shown"] == 1
+    assert result["rows"] == [
+        {
+            "uuid": UUID,
+            "rule": "#10 [opt1] block in inet TCP from !lan to any port 22 '[mcp] test'",
+        }
+    ]
+    auto = {
+        "uuid": "02f4bab031b57d1e30553ce08e0ec131",
+        "action": "block",
+        "direction": "in",
+        "ipprotocol": "inet46",
+        "log": "True",
+        "quick": "False",
+        "description": "Default deny",
+        "is_automatic": "True",
+    }
+    api.get("/api/firewall/filter/searchRule").respond(json={"rows": [auto]})
+    line = (await call(server, "firewall_rules"))["rows"][0]["rule"]
+    assert line == (
+        "[auto] [any] block in inet46 any from any to any [log] 'Default deny'"
+        " (not quick: a later match wins)"
+    )
+    api.get("/api/firewall/filter/searchRule").respond(json={"rows": [row]})
+    full = await call(server, "firewall_rules", {"detail": True})
+    assert full["rows"][0]["gateway"] == "x" * 2000
+
+
 async def test_firewall_rule_get(server: MCPServer, api: respx.MockRouter) -> None:
     api.get(f"/api/firewall/filter/getRule/{UUID}").respond(json={"rule": {"action": "pass"}})
     assert await call(server, "firewall_rule_get", {"uuid": UUID}) == {"rule": {"action": "pass"}}
@@ -53,7 +101,7 @@ async def test_raw_get_cannot_mutate(server: MCPServer, api: respx.MockRouter) -
 
 
 async def test_posture_flags_stopped_services(server: MCPServer, api: respx.MockRouter) -> None:
-    api.get("/api/core/firmware/status").respond(json={})
+    api.get("/api/diagnostics/system/system_information").respond(json={})
     api.get("/api/ids/service/status").respond(json={"status": "stopped"})
     api.get("/api/core/service/search").respond(
         json={

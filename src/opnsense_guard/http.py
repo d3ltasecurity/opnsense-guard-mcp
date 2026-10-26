@@ -158,5 +158,8 @@ def run_http(mcp: MCPServer, settings: HttpSettings) -> None:
         log_level="info",
         server_header=False,
         proxy_headers=False,
+        # Clients keep a stream open. Without a cap, shutdown waits on it until
+        # systemd kills us, and the shutdown revert of unconfirmed changes never runs.
+        timeout_graceful_shutdown=5,
         **tls_kwargs,  # type: ignore[arg-type]
     )
