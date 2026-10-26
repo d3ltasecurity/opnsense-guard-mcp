@@ -30,3 +30,14 @@ jobs:
         run: mypy
       - name: Test
         run: pytest -q
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build image
+        run: docker build -t opnsense-guard-mcp:ci .
+      - name: Smoke test
+        run: docker run --rm opnsense-guard-mcp:ci --version

@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- First real use: `firewall_rules` returned ~60 KB for 38 rules, too much for a
+  chat. It now returns one line per rule (`total`, `shown`, `rows`), default
+  limit 50, negation shown as `!`; `detail=true` gives the raw rows.
+- `posture_check` reads `system_information` instead of `core/firmware/status`,
+  so it works for the least-privilege read user.
+- Change results always carry `change_id` (success used to say only `id`).
+- HTTP shutdown gives open client streams 5 s. Before, an open Claude Code
+  stream held shutdown until systemd killed the process (60 s), so the
+  shutdown revert of unconfirmed changes never ran (startup recovery still
+  caught them).
+
 - Works with a least-privilege read user (tested on a real 26.7.4).
   OPNsense matches privileges against the literal snake_case URL, so the
   camelCase spellings (`getArp`) were refused for non-admin users even with

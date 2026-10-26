@@ -62,6 +62,8 @@ class Change:
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
+        # Same key as failure results and the change_* tool arguments.
+        data["change_id"] = self.id
         data["seconds_left"] = (
             max(0, round(self.deadline - time.time())) if self.deadline and self.open else None
         )

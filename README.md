@@ -119,6 +119,33 @@ HTTP never runs without authentication. The server refuses to start if:
 
 Repeated failed logins from one IP (10 a minute) are throttled with HTTP 429.
 
+**Claude Code and a private CA:** Claude Code (Node) ignores the Windows/macOS
+certificate store for MCP servers. Point `NODE_EXTRA_CA_CERTS` at your CA file
+in the `env` block of `~/.claude/settings.json`, then fully quit and reopen
+Claude, or the connection fails with `UNABLE_TO_VERIFY_LEAF_SIGNATURE`.
+
+## Running in Docker
+
+The image runs as a non-root user and keeps its audit log, change journal and
+tokens in `/data`.
+
+```bash
+docker build -t opnsense-guard-mcp .
+
+# stdio, for a local MCP client
+docker run -i --rm --env-file .env -v guard-data:/data opnsense-guard-mcp
+
+# HTTP: create a token, then serve (put the TLS files in the volume or mount them)
+docker run --rm -v guard-data:/data opnsense-guard-mcp token new --name laptop --scope read
+docker run -d --name opnsense-guard --env-file .env -v guard-data:/data -p 8848:8848 \
+  -e MCP_TRANSPORT=http -e MCP_HOST=0.0.0.0 -e MCP_ALLOWED_HOSTS=mcp.example.internal:8848 \
+  -e MCP_TLS_CERT=/data/tls/server.pem -e MCP_TLS_KEY=/data/tls/server.key \
+  opnsense-guard-mcp
+```
+
+Mount a policy file and set `OPNSENSE_GUARD_POLICY` to enable writes. Stop the
+container with `docker stop` (not `kill`) so unconfirmed changes are reverted.
+
 ## Policy and planning
 
 Without a `policy.yaml` the server is read-only. To enable planning, copy
@@ -209,6 +236,13 @@ Credentials are never written to it.
 In write mode also: `rule_plan`, `alias_plan`, `plan_get`, `audit_tail`.
 With write credentials also: `change_apply`, `change_confirm`, `change_rollback`,
 `change_list`, `change_get`.
+
+`firewall_rules` returns one line per rule (50 by default) so a full ruleset
+fits in a chat; pass `detail=true` for the raw OPNsense rows, or use
+`firewall_rule_get` for one rule.
+
+Over HTTP, a read token still sees the change tools in the tool list, but
+calling one is refused (`needs a token with scope 'write'`).
 
 ## Development
 
