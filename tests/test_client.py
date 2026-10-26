@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 import respx
@@ -55,3 +57,35 @@ async def test_connect_error(client: ReadClient, api: respx.MockRouter) -> None:
 def test_client_has_no_write_methods() -> None:
     for name in ("post", "put", "patch", "delete", "request"):
         assert not hasattr(ReadClient, name)
+
+
+async def test_search_posts_only_three_fields(client: ReadClient, api: respx.MockRouter) -> None:
+    route = api.post("/api/diagnostics/firewall/query_states").respond(json={"rows": []})
+    await client.search("/api/diagnostics/firewall/query_states", row_count=5, search_phrase="x")
+    request = route.calls.last.request
+    assert request.method == "POST"
+    assert json.loads(request.content) == {"current": 1, "rowCount": 5, "searchPhrase": "x"}
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/firewall/filter/addRule",  # denied verb
+        "/api/firewall/filter/apply",  # denied verb
+        "/api/firewall/alias/searchItem",  # allowed for GET, not listed for POST
+        "/api/diagnostics/firewall/query_states/extra",  # exact match only
+        "/api/diagnostics/firewall/./query_states",  # traversal
+    ],
+)
+async def test_search_refuses_unlisted_paths(
+    client: ReadClient, api: respx.MockRouter, path: str
+) -> None:
+    with pytest.raises(PathNotAllowed):
+        await client.search(path, row_count=5)
+    assert not api.calls
+
+
+async def test_search_refuses_long_phrase(client: ReadClient, api: respx.MockRouter) -> None:
+    with pytest.raises(PathNotAllowed):
+        await client.search("/api/firewall/filter/searchRule", row_count=5, search_phrase="a" * 201)
+    assert not api.calls

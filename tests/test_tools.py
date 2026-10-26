@@ -1,3 +1,5 @@
+import json
+
 import respx
 from mcp.server import MCPServer
 
@@ -26,12 +28,24 @@ async def test_errors_come_back_as_data(server: MCPServer, api: respx.MockRouter
     assert "403" in result["error"]
 
 
-async def test_firewall_rules_params_and_clamp(server: MCPServer, api: respx.MockRouter) -> None:
-    route = api.get("/api/firewall/filter/searchRule").respond(json={"rows": []})
+async def test_firewall_rules_posts_search_and_clamps(
+    server: MCPServer, api: respx.MockRouter
+) -> None:
+    # 26.7.4 ignores rowCount/searchPhrase on a GET here, so the tool POSTs.
+    route = api.post("/api/firewall/filter/searchRule").respond(json={"rows": []})
     await call(server, "firewall_rules", {"search": "dmz", "limit": 999999})
-    params = route.calls.last.request.url.params
-    assert params["rowCount"] == "1000"
-    assert params["searchPhrase"] == "dmz"
+    body = json.loads(route.calls.last.request.content)
+    assert body == {"current": 1, "rowCount": 1000, "searchPhrase": "dmz"}
+
+
+async def test_firewall_states_posts_search(server: MCPServer, api: respx.MockRouter) -> None:
+    route = api.post("/api/diagnostics/firewall/query_states").respond(
+        json={"rows": [{"src": "192.0.2.10"}], "total": 442}
+    )
+    result = await call(server, "firewall_states", {"limit": 5, "search": "192.0.2.10"})
+    assert result["total"] == 442
+    body = json.loads(route.calls.last.request.content)
+    assert body == {"current": 1, "rowCount": 5, "searchPhrase": "192.0.2.10"}
 
 
 async def test_firewall_rules_are_one_line_each(server: MCPServer, api: respx.MockRouter) -> None:
@@ -51,7 +65,7 @@ async def test_firewall_rules_are_one_line_each(server: MCPServer, api: respx.Mo
         "description": "[mcp] test",
         "gateway": "x" * 2000,
     }
-    api.get("/api/firewall/filter/searchRule").respond(json={"rows": [row], "total": 38})
+    api.post("/api/firewall/filter/searchRule").respond(json={"rows": [row], "total": 38})
     result = await call(server, "firewall_rules")
     assert result["total"] == 38
     assert result["shown"] == 1
@@ -71,30 +85,16 @@ async def test_firewall_rules_are_one_line_each(server: MCPServer, api: respx.Mo
         "description": "Default deny",
         "is_automatic": "True",
     }
-    api.get("/api/firewall/filter/searchRule").respond(json={"rows": [auto]})
+    api.post("/api/firewall/filter/searchRule").respond(json={"rows": [auto]})
     line = (await call(server, "firewall_rules"))["rows"][0]["rule"]
     assert line == (
         "[auto] [any] block in inet46 any from any to any [log] 'Default deny'"
         " (not quick: a later match wins)"
     )
-    api.get("/api/firewall/filter/searchRule").respond(json={"rows": [row]})
+    api.post("/api/firewall/filter/searchRule").respond(json={"rows": [row]})
     full = await call(server, "firewall_rules", {"detail": True})
     assert full["rowCount"] == 1
     assert full["rows"][0]["gateway"] == "x" * 2000
-
-
-async def test_firewall_rules_filters_and_limits_itself(
-    server: MCPServer, api: respx.MockRouter
-) -> None:
-    # Real 26.7.4 ignores rowCount/searchPhrase on GET searchRule.
-    rows = [{"uuid": str(i), "description": f"rule {i}", "action": "pass"} for i in range(10)]
-    rows[7]["description"] = "Kali DMZ"
-    api.get("/api/firewall/filter/searchRule").respond(json={"rows": rows, "total": 10})
-    found = await call(server, "firewall_rules", {"search": "kali"})
-    assert [r["uuid"] for r in found["rows"]] == ["7"]
-    first = await call(server, "firewall_rules", {"limit": 3})
-    assert first["total"] == 10
-    assert first["shown"] == 3
 
 
 async def test_firewall_rule_get(server: MCPServer, api: respx.MockRouter) -> None:
@@ -142,7 +142,7 @@ async def test_suricata_alert_status(server: MCPServer, api: respx.MockRouter) -
 
 async def test_dhcp_leases_picks_active_backend(server: MCPServer, api: respx.MockRouter) -> None:
     api.get("/api/kea/leases4/search").respond(json={"rows": []})
-    api.get("/api/dhcpv4/leases/searchLease").respond(404)
+    api.get("/api/dhcpv4/leases/search_lease").respond(404)
     api.get("/api/dnsmasq/leases/search").respond(json={"rows": [{"address": "10.0.0.5"}]})
     result = await call(server, "dhcp_leases")
     assert result["active_backend"] == "dnsmasq"

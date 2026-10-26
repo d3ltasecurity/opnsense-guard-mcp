@@ -5,9 +5,13 @@
 - First real use: `firewall_rules` returned ~60 KB for 38 rules, too much for a
   chat. It now returns one line per rule (`total`, `shown`, `rows`), default
   limit 50, negation shown as `!`; `detail=true` gives the raw rows.
-- `firewall_rules` filters and limits on the server side: 26.7.4 ignores
-  `searchPhrase` and `rowCount` on a GET to `searchRule` (found in use:
-  `search=mcp, limit=5` returned all 38 rules).
+- Read client: new `search()` POSTs to exactly two endpoints, with a body it
+  builds from `current`, `rowCount`, `searchPhrase`. 26.7.4 answers a GET to
+  `query_states` with 0 rows (442 live states over POST) and ignores search
+  and limit on a GET to `searchRule` (`search=mcp, limit=5` gave all 38
+  rules). `firewall_states` and `firewall_rules` use it; `firewall_states`
+  defaults to 25 rows (~700 bytes each).
+- `dhcp_leases`: ISC leases use the snake_case path a limited user needs.
 - `posture_check` reads `system_information` instead of `core/firmware/status`,
   so it works for the least-privilege read user.
 - Change results always carry `change_id` (success used to say only `id`).

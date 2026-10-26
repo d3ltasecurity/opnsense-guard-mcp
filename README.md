@@ -17,7 +17,7 @@ Not affiliated with Deciso B.V. "OPNsense" is a trademark of Deciso B.V.
 | | opnsense-guard-mcp |
 |---|---|
 | Default mode | read-only |
-| Read path | GET only, path allowlist, verb denylist, traversal/encoding rejected, redirects not followed |
+| Read path | GET, plus POST to exactly two search endpoints (states, rules) with a fixed three-field body; path allowlist, verb denylist, traversal/encoding rejected, redirects not followed |
 | Writes | separate API user, exact endpoint allowlist, plan → policy check → human approval → apply → verify → auto-revert unless confirmed |
 | Rollback on 26.7+ | own object-level snapshots + revert (the savepoint API is gone in 26.7); survives restarts |
 | Guardrails | allowlist policy file: interfaces, networks, rule limits, anti-lockout |
@@ -45,12 +45,16 @@ Not affiliated with Deciso B.V. "OPNsense" is a trademark of Deciso B.V.
    | Diagnostics: Logs: System | `system_log` |
    | Lobby: Dashboard | `system_information`, `system_resources`, health probe |
    | Services: Intrusion Detection | `suricata_*` |
-   | Services: DHCP: Kea(v4) / Services: Dnsmasq DNS/DHCP: Settings | `dhcp_leases` |
+   | Services: DHCP: Kea(v4) / Services: Dnsmasq DNS/DHCP: Settings / Status: DHCP leases (ISC) | `dhcp_leases`: only the one you use |
    | System: Firmware *(optional)* | `system_status`. It also allows installing updates, so leave it out unless you need it. |
 
    Most OPNsense privileges are not view-only (*Firewall: Aliases* is an
-   exception): several of these also allow edits through the API. The server itself only ever sends GET requests with
-   this key, but keep the list short.
+   exception): several of these also allow edits through the API. The server
+   only sends GET requests with this key, except a search POST to two exact
+   endpoints (`diagnostics/firewall/query_states`, `firewall/filter/searchRule`)
+   with a body it builds itself (`current`, `rowCount`, `searchPhrase`);
+   OPNsense answers those lists properly only over POST. Still keep the list
+   short: the privileges are what OPNsense itself enforces.
 2. Install:
 
    ```bash
