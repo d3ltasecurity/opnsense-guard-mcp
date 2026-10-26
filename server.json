@@ -1,0 +1,49 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.d3ltasecurity/opnsense-guard-mcp",
+  "title": "OPNsense Guard",
+  "description": "Safety-first OPNsense firewall MCP: read-only by default, planned and auto-reverting writes.",
+  "repository": {
+    "url": "https://github.com/d3ltasecurity/opnsense-guard-mcp",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "opnsense-guard-mcp",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "OPNSENSE_URL",
+          "description": "Firewall base URL, e.g. https://firewall.example.internal",
+          "isRequired": true,
+          "format": "string"
+        },
+        {
+          "name": "OPNSENSE_API_KEY",
+          "description": "API key of a least-privilege read user",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": true
+        },
+        {
+          "name": "OPNSENSE_API_SECRET",
+          "description": "API secret of the read user",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": true
+        },
+        {
+          "name": "OPNSENSE_CA_BUNDLE",
+          "description": "CA file for a self-signed firewall certificate",
+          "isRequired": false,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}

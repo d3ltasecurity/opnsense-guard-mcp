@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "opnsense-guard-mcp"
-version = "0.0.1"
+version = "0.1.0"
 description = "Safety-first MCP server for OPNsense: read-only by default, planned + audited + auto-reverting writes."
 readme = "README.md"
 license = "MIT"
@@ -13,7 +13,7 @@ requires-python = ">=3.11"
 authors = [{ name = "D3lta Security" }]
 keywords = ["opnsense", "mcp", "firewall", "model-context-protocol", "security"]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: System Administrators",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",

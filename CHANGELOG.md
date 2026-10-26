@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.1.0 - 2026-10-26
+
+First public release.
 
 - First real use: `firewall_rules` returned ~60 KB for 38 rules, too much for a
   chat. It now returns one line per rule (`total`, `shown`, `rows`), default

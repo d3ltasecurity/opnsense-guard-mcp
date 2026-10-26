@@ -5,10 +5,12 @@ A safety-first [MCP](https://modelcontextprotocol.io) server for **OPNsense 26.7
 > **Read-only by default. Every write is planned, policy-checked, logged, and
 > auto-reverted unless you confirm it.**
 
-**Status: pre-alpha (Phase 3, not yet tested against a live firewall).** Read
-tools, policy file, change planning with diffs, applying changes with verification
-and automatic revert, and a hash-chained audit log, over stdio or authenticated
-HTTP. See [DESIGN.md](DESIGN.md).
+**Status: alpha.** Tested against a live OPNsense 26.7.4 with least-privilege
+API users: read tools, policy file, change planning with diffs, applying changes
+with verification and automatic revert, crash recovery, and a hash-chained audit
+log, over stdio or authenticated HTTPS. See [DESIGN.md](DESIGN.md).
+
+<!-- mcp-name: io.github.d3ltasecurity/opnsense-guard-mcp -->
 
 Not affiliated with Deciso B.V. "OPNsense" is a trademark of Deciso B.V.
 
@@ -58,7 +60,7 @@ Not affiliated with Deciso B.V. "OPNsense" is a trademark of Deciso B.V.
 2. Install:
 
    ```bash
-   pipx install opnsense-guard-mcp   # not on PyPI yet; for now: pip install -e .
+   pipx install opnsense-guard-mcp
    ```
 
 3. Configure (copy `.env.example` to `.env`, or set env vars):
