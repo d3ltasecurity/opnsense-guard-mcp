@@ -72,12 +72,21 @@ def register_change_tools(mcp: MCPServer, manager: ChangeManager, policy: Policy
 
         method = "not_required"
         if policy.writes.require_human_confirm:
+            answer = None
             if _elicitation_supported(ctx):
-                answer = await ctx.elicit(
-                    f"Apply this firewall change? It auto-reverts in "
-                    f"{round(manager.timeout_s)} s unless confirmed.\n\n{diff}",
-                    ApplyApproval,
-                )
+                try:
+                    answer = await ctx.elicit(
+                        f"Apply this firewall change? It auto-reverts in "
+                        f"{round(manager.timeout_s)} s unless confirmed.\n\n{diff}",
+                        ApplyApproval,
+                    )
+                except Exception:
+                    # Declaring the capability is not the same as being able to
+                    # use it: an HTTP transport with no back-channel for
+                    # server-initiated requests raises here. Fall back to the
+                    # in-chat confirmation rather than failing the apply.
+                    answer = None
+            if answer is not None:
                 approved = answer.action == "accept" and bool(
                     getattr(answer, "data", None) and answer.data.approve
                 )

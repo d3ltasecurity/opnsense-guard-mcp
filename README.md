@@ -174,7 +174,11 @@ Built-in guardrails: only listed interfaces/actions/directions; every IP inside
 `allow_networks`; no any→any pass, WAN inbound pass, floating rules or rules
 without logging; edit only rules tagged `[mcp]` (unless `only_modify_own: false`);
 anti-lockout (no block rule that matches this server's own IP, and only new
-pass rules on the interface it reaches the API through).
+pass rules on the interface it reaches the API through). A new block or reject
+rule there is allowed when the same plan adds a pass rule with a lower
+`sequence` that provably lets every MCP host reach the API (source covers the
+host IP, destination `any`/`(self)`/the API IP, TCP, port covers the API port);
+both rules need a `sequence`.
 
 ## Applying changes
 

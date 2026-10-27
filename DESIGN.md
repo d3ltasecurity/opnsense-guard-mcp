@@ -220,7 +220,8 @@ writes:
 anti_lockout:
   enabled: true
   mcp_host_ips: [192.168.1.50]     # example: the MCP host; never block it → API
-  protected_interfaces: [opt2]     # the MCP host reaches the API here: only new pass rules
+  protected_interfaces: [opt2]     # the MCP host reaches the API here: only new pass rules,
+                                   # or new blocks behind a new pass that keeps it in (same plan)
   i_understand_lockout_risk: false # second switch needed to set enabled: false
 ```
 

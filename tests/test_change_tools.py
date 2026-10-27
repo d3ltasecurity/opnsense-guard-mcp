@@ -143,15 +143,22 @@ def tool_fn(server: MCPServer, name: str) -> Any:
     return server._tool_manager.get_tool(name).fn  # type: ignore[union-attr]
 
 
-def fake_ctx(scope: str | None = None, elicit_answer: Any = None) -> Any:
+def fake_ctx(
+    scope: str | None = None,
+    elicit_answer: Any = None,
+    elicit_error: BaseException | None = None,
+) -> Any:
     state = {"token_name": "hub", "token_scope": scope} if scope else {}
     request = SimpleNamespace(scope={"state": state}) if scope else None
 
     async def elicit(message: str, schema: Any) -> Any:
         fake_ctx.last_message = message  # type: ignore[attr-defined]
+        if elicit_error is not None:
+            raise elicit_error
         return elicit_answer
 
-    caps = SimpleNamespace(elicitation=object()) if elicit_answer is not None else None
+    declares = elicit_answer is not None or elicit_error is not None
+    caps = SimpleNamespace(elicitation=object()) if declares else None
     return SimpleNamespace(
         request_context=SimpleNamespace(request=request),
         client_capabilities=caps,
@@ -193,6 +200,35 @@ async def test_elicitation_accept_but_unticked_is_a_no(server: MCPServer, fw: Fa
     result = await tool_fn(server, "change_apply")(plan["plan_id"], fake_ctx("write", unticked))
     assert result["status"] == "declined"
     assert not fw.rules
+
+
+async def test_declared_elicitation_the_transport_cannot_carry_falls_back(
+    server: MCPServer, fw: FakeOPNsense
+) -> None:
+    """A client may declare elicitation on a transport with no back-channel.
+
+    Found on a live HTTPS server: ctx.elicit() raised, the error escaped the
+    tool, and user_confirmed could never be reached, so no change could be
+    applied at all.
+    """
+    plan = await call(server, "rule_plan", {"operations": [ADD]})
+    boom = RuntimeError(
+        "Cannot send 'elicitation/create': this transport context has no "
+        "back-channel for server-initiated requests"
+    )
+    apply = tool_fn(server, "change_apply")
+
+    asked = await apply(plan["plan_id"], fake_ctx("write", elicit_error=boom))
+    assert asked["status"] == "needs_confirmation"
+    assert asked["diff"] == plan["diff"]
+    assert not fw.rules
+
+    applied = await apply(
+        plan["plan_id"], fake_ctx("write", elicit_error=boom), user_confirmed=True
+    )
+    assert applied["status"] == "pending", applied
+    assert applied["confirm_method"] == "user_confirmed_in_chat"
+    assert len(fw.rules) == 1
 
 
 def test_write_settings_from_env(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -37,5 +37,6 @@ anti_lockout:
   enabled: true
   mcp_host_ips: [192.168.60.10]       # this server's own address(es)
   protected_interfaces: [opt2]        # interface(s) this server reaches the API through
+                                      # (new blocks there need a keep-in pass in the same plan)
 
 audit_reads: false

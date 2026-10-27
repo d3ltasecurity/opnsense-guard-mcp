@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.1 - 2026-10-27
+
+- `change_apply` could not apply anything from a client that declares the
+  elicitation capability on a transport with no back-channel for
+  server-initiated requests: `ctx.elicit()` raised, the error escaped the
+  tool, and the documented `user_confirmed=true` fallback was unreachable.
+  Declaring the capability is not the same as being able to use it, so the
+  elicitation is now attempted and a failure falls back to the in-chat
+  confirmation. Found applying a real rule over HTTPS from Claude Code.
+- Anti-lockout was too blunt: it refused every block rule on a protected
+  interface, even when the same plan put a pass for this server's own hosts
+  above it. Found while locking the SERVICES net out of the firewall itself.
+  A new block/reject is now allowed when a new pass rule in the same plan,
+  with a lower `sequence`, provably lets each MCP host reach the API (source,
+  destination `any`/`(self)`/API IP, TCP or any, port covering the API port).
+  Anything it cannot prove (aliases, missing sequence, hostname URL with an
+  IP destination) is still refused, and the error now says what to add.
+
 ## 0.1.0 - 2026-10-26
 
 First public release.

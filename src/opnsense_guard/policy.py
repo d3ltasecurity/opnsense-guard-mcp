@@ -82,7 +82,8 @@ class AntiLockout(_Strict):
     # The MCP host's own addresses: no block/reject rule may match them as source.
     mcp_host_ips: list[str] = Field(default_factory=list)
     # Interfaces the MCP host reaches the API through: only new *pass* rules
-    # may be added there (no block/reject, no edit/delete/disable).
+    # may be added there (no edit/delete/disable). A new block/reject is allowed
+    # only behind a new pass in the same plan that keeps every MCP host in.
     protected_interfaces: list[str] = Field(default_factory=list)
     # Turning anti-lockout off needs this second, explicit switch.
     i_understand_lockout_risk: bool = False

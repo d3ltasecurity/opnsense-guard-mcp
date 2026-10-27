@@ -173,6 +173,92 @@ async def test_anti_lockout_protected_interface(planner: Planner, rules_api: Any
     assert any("protected_interfaces" in v for v in delete["violations"])
 
 
+def keep_in(**rule: Any) -> RuleOp:
+    """A pass that lets the example MCP host (192.168.60.10) reach the API on opt2."""
+    base = {
+        "action": "pass",
+        "interface": "opt2",
+        "protocol": "TCP",
+        "source_net": "192.168.60.10",
+        "destination_net": "(self)",
+        "destination_port": "443",
+        "sequence": 10,
+    }
+    return RuleOp(op="add", rule={**base, **rule})  # type: ignore[arg-type]
+
+
+def lock_out(**rule: Any) -> RuleOp:
+    """Block the whole opt2 net from the firewall itself."""
+    base = {"interface": "opt2", "source_net": "opt2", "destination_net": "(self)", "sequence": 20}
+    return add(**{**base, **rule})
+
+
+async def test_block_allowed_after_pass_that_keeps_mcp_in(planner: Planner) -> None:
+    result = await plan(planner, keep_in(), lock_out())
+    assert result["status"] == "allowed", result["violations"]
+    # Order inside the plan does not matter: rules apply together, sequence decides.
+    result = await plan(planner, lock_out(), keep_in(destination_net="any", destination_port=""))
+    assert result["status"] == "allowed", result["violations"]
+    result = await plan(planner, keep_in(source_net="192.168.60.0/24"), lock_out(action="reject"))
+    assert result["status"] == "allowed", result["violations"]
+
+
+@pytest.mark.parametrize(
+    "pass_rule",
+    [
+        {"sequence": 30},  # after the block
+        {"sequence": None},  # order unknown
+        {"destination_port": "22"},  # misses the API port
+        {"protocol": "UDP"},
+        {"source_net": "192.168.60.11"},  # someone else
+        {"interface": "opt1"},
+        {"enabled": False},
+        {"ipprotocol": "inet6"},
+        {"destination_net": "192.168.60.1"},  # API URL is a hostname: cannot prove
+        {"destination_port": "mcp_ports"},  # alias: cannot prove
+    ],
+)
+async def test_block_still_refused_without_a_real_keep_in(
+    planner: Planner, pass_rule: dict[str, Any]
+) -> None:
+    result = await plan(planner, keep_in(**pass_rule), lock_out())
+    assert result["status"] == "denied"
+    assert any("anti_lockout" in v for v in result["violations"]), result["violations"]
+
+
+async def test_block_without_sequence_refused(planner: Planner) -> None:
+    result = await plan(planner, keep_in(), lock_out(sequence=None))
+    assert any("protected_interfaces" in v for v in result["violations"])
+
+
+async def test_keep_in_matches_api_ip_and_port(policy: Policy, api: respx.MockRouter) -> None:
+    from opnsense_guard.config import ReadSettings
+
+    settings = ReadSettings(url="https://192.168.60.1:8443", api_key="k", api_secret="s")
+    client = ReadClient(settings)
+    planner = Planner(policy, lambda: client, PlanStore())
+    try:
+        ok = await plan(
+            planner,
+            keep_in(destination_net="192.168.60.1", destination_port="8000-9000"),
+            lock_out(),
+        )
+        assert ok["status"] == "allowed", ok["violations"]
+        bad = await plan(planner, keep_in(destination_port="443"), lock_out())
+        assert bad["status"] == "denied"
+    finally:
+        await client.aclose()
+
+
+async def test_existing_pass_rules_cannot_be_dropped_after(
+    planner: Planner, rules_api: Any
+) -> None:
+    # The pass that keeps the server in sits on a protected interface, so the
+    # guard refuses to delete or disable it later.
+    toggle = await plan(planner, RuleOp(op="toggle", uuid=PROTECTED_IFACE_RULE, enabled=False))
+    assert any("protected_interfaces" in v for v in toggle["violations"])
+
+
 async def test_update_own_rule_shows_diff(planner: Planner, rules_api: Any) -> None:
     op = RuleOp(op="update", uuid=TAGGED, changes={"destination_port": "2222"})  # type: ignore[arg-type]
     result = await plan(planner, op)

@@ -16,10 +16,12 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from opnsense_guard.client import OPNsenseError, ReadClient
+from opnsense_guard.config import ConfigError
 from opnsense_guard.policy import IPAddress, IPNetwork, Policy
 
 PLAN_TTL_S = 900
@@ -308,6 +310,16 @@ def _contains_any(net: IPNetwork, ips: list[IPAddress]) -> bool:
     return any(ip.version == net.version and ip in net for ip in ips)
 
 
+def api_endpoint(url: str) -> tuple[IPAddress | None, int]:
+    """The firewall API's address (None for a hostname) and port, from OPNSENSE_URL."""
+    parts = urlsplit(url)
+    try:
+        host = ipaddress.ip_address(parts.hostname or "")
+    except ValueError:
+        host = None
+    return host, parts.port or (443 if parts.scheme == "https" else 80)
+
+
 class PolicyChecker:
     def __init__(self, policy: Policy) -> None:
         self.policy = policy
@@ -316,6 +328,9 @@ class PolicyChecker:
         self.nets = policy.writes.rules.networks()
         self.lock = policy.anti_lockout
         self.mcp_ips = policy.anti_lockout.host_ips()
+        # Where this server reaches the API; set by the planner from OPNSENSE_URL.
+        self.api_ip: IPAddress | None = None
+        self.api_port = 443
 
     def tagged(self, description: str) -> str:
         tag = self.w.tag
@@ -368,8 +383,78 @@ class PolicyChecker:
                 return True
         return False
 
+    def _source_may_match(self, source: str, ip: IPAddress) -> bool:
+        """Same reading as source_hits_mcp_host, for one address."""
+        for item in (v.strip() for v in source.split(",")):
+            if item == "any":
+                return True
+            base = item[:-2] if item.endswith("ip") else item
+            if base in self.lock.protected_interfaces:
+                return True
+            net = _parse_net(item)
+            if net is not None and _contains_any(net, [ip]):
+                return True
+        return False
+
+    def _lets_in(self, rule: dict[str, str], ip: IPAddress, interface: str, before: int) -> bool:
+        """Does this pass rule, evaluated before sequence ``before``, let ``ip`` reach the API?
+
+        Strict on purpose: anything this cannot prove (aliases, ports that miss the
+        API port, a hostname in OPNSENSE_URL with an IP destination) counts as "no".
+        """
+        if not rule.get("sequence") or int(rule["sequence"]) >= before:
+            return False
+        fixed = all(rule.get(k) == val for k, val in FIXED_RULE_FIELDS.items())
+        if not fixed or rule.get("enabled") != "1" or rule.get("action") != "pass":
+            return False
+        if rule.get("interface") != interface or rule.get("direction") != "in":
+            return False
+        if rule.get("ipprotocol") not in ("inet46", "inet" if ip.version == 4 else "inet6"):
+            return False
+        if rule.get("protocol") not in ("any", "TCP", "TCP/UDP"):
+            return False
+
+        def covers(value: str, extra: tuple[str, ...], target: IPAddress | None) -> bool:
+            for item in (v.strip() for v in value.split(",")):
+                if item == "any" or item in extra:
+                    return True
+                net = _parse_net(item)
+                if net is not None and target is not None and _contains_any(net, [target]):
+                    return True
+            return False
+
+        if not covers(rule.get("source_net", ""), (), ip):
+            return False
+        if not covers(rule.get("destination_net", ""), ("(self)",), self.api_ip):
+            return False
+        port = rule.get("destination_port", "")
+        if port in ("", "any"):
+            return True
+        match = PORT_RE.match(port)
+        if not match:
+            return False
+        low, high = int(match.group(1)), int(match.group(2) or match.group(1))
+        return low <= self.api_port <= high
+
+    def mcp_hosts_kept_in(self, block: dict[str, str], passes: list[dict[str, str]]) -> bool:
+        """True when every MCP host this new block could match is let in by an earlier pass.
+
+        The passes must be new rules in the same plan: they are applied together,
+        and once applied the protected-interface check stops them being removed.
+        """
+        if not block.get("sequence") or "," in block.get("interface", ""):
+            return False
+        seq = int(block["sequence"])
+        hit = [ip for ip in self.mcp_ips if self._source_may_match(block["source_net"], ip)]
+        return all(any(self._lets_in(p, ip, block["interface"], seq) for p in passes) for ip in hit)
+
     def check_rule(
-        self, op: str, before: dict[str, str] | None, after: dict[str, str] | None, uuid: str
+        self,
+        op: str,
+        before: dict[str, str] | None,
+        after: dict[str, str] | None,
+        uuid: str,
+        passes: list[dict[str, str]] | None = None,
     ) -> list[str]:
         v: list[str] = []
         if uuid and uuid in self.rules.protect_uuids:
@@ -397,14 +482,22 @@ class PolicyChecker:
                 v.append("rule is not 'quick' (last-match); only first-match rules are supported")
                 break
 
-        # Anti-lockout: protected interfaces accept new pass rules only.
+        # Anti-lockout: protected interfaces accept new pass rules only, plus new
+        # blocks that come after a new pass keeping this server's API access.
         new_pass = op == "add" and after is not None and after.get("action") == "pass"
-        if self.lock.enabled and not new_pass:
+        kept_in = (
+            op == "add"
+            and after is not None
+            and after.get("action") in ("block", "reject")
+            and self.mcp_hosts_kept_in(after, passes or [])
+        )
+        if self.lock.enabled and not new_pass and not kept_in:
             for state in (before, after):
                 if state and state.get("interface") in self.lock.protected_interfaces:
                     v.append(
                         f"interface {state['interface']} carries this server's API access "
-                        "(anti_lockout.protected_interfaces): only new pass rules allowed"
+                        "(anti_lockout.protected_interfaces): only new pass rules, or new "
+                        "blocks placed after a new pass that keeps this server's access"
                     )
                     break
 
@@ -449,11 +542,15 @@ class PolicyChecker:
         if (
             self.lock.enabled
             and after["action"] in ("block", "reject")
+            and not kept_in
             and self.source_hits_mcp_host(after["source_net"])
         ):
             v.append(
                 "this block/reject rule could match this server's own address "
-                "(anti_lockout.mcp_host_ips) and cut off its API access"
+                "(anti_lockout.mcp_host_ips) and cut off its API access; to allow it, add "
+                "in the same plan a pass rule with a lower sequence that lets "
+                f"{', '.join(map(str, self.mcp_ips))} reach the API (TCP port {self.api_port}), "
+                "and give both rules a sequence"
             )
         return v
 
@@ -524,18 +621,28 @@ class Planner:
 
     async def plan_rules(self, ops: list[RuleOp], actor: str) -> Plan:
         plan = self._new_plan("rule", actor, len(ops))
+        try:
+            self.check.api_ip, self.check.api_port = api_endpoint(self.get_client().settings.url)
+        except ConfigError:  # no config yet: keep the strict defaults
+            self.check.api_ip, self.check.api_port = None, 443
+        # New pass rules in this plan, for the anti-lockout check on new blocks.
+        passes = [
+            spec_to_fields(op.rule)
+            for op in ops
+            if op.op == "add" and op.rule is not None and op.rule.action == "pass"
+        ]
         for op in ops:
-            plan.objects.append(await self._plan_rule(op))
+            plan.objects.append(await self._plan_rule(op, passes))
         self.store.add(plan)
         return plan
 
-    async def _plan_rule(self, op: RuleOp) -> PlannedObject:
+    async def _plan_rule(self, op: RuleOp, passes: list[dict[str, str]]) -> PlannedObject:
         if op.op == "add":
             assert op.rule is not None
             after = spec_to_fields(op.rule)
             after["description"] = self.check.tagged(after["description"])
             obj = PlannedObject("rule", "add", "(new)", None, after, [f"+ {describe_rule(after)}"])
-            obj.violations = self.check.check_rule("add", None, after, "")
+            obj.violations = self.check.check_rule("add", None, after, "", passes)
             return obj
 
         uuid = op.uuid or ""
